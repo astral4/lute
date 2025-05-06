@@ -14,9 +14,8 @@ categories = ["data-structures"]
 
 [dependencies]
 foldhash = "0.1"
-num-traits = "0.2"
-rand = "0.8"
-usize_cast = "1"
+rand = "0.9"
+rand_xoshiro = "0.7.0"
 
 [lints.rust]
 async_fn_in_trait = "allow"

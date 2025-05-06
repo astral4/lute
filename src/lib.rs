@@ -9,45 +9,22 @@ mod generate;
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::borrow::Borrow;
-use core::hash::{Hash, Hasher};
-use core::marker::PhantomData;
+use core::{borrow::Borrow, hash::Hash};
 use foldhash::{HashSet, HashSetExt};
-use num_traits::bounds::UpperBounded;
-use num_traits::{AsPrimitive, Unsigned, WrappingAdd, WrappingMul, Zero};
-use rand::distributions::Standard;
-use rand::prelude::Distribution;
-use rand::{Rng, SeedableRng};
-use usize_cast::IntoUsize;
 
-pub trait MapHasher<S, H>: Hasher
-where
-    H: 'static + UpperBounded + Unsigned + IntoUsize + Zero + Copy + WrappingMul + WrappingAdd,
-{
-    fn new_with_seed(seed: &S) -> Self;
-
-    fn finish_triple(&self) -> (H, H, H);
-}
-
-pub struct Map<M, S, H, K, V> {
-    seed: S,
-    displacements: Vec<(H, H)>,
+pub struct Map<K, V> {
+    seed: u64,
+    displacements: Vec<(u16, u16)>,
     entries: Vec<(K, V)>,
-    _marker: PhantomData<M>,
 }
 
-impl<M, S, H, K, V> Map<M, S, H, K, V> {
-    pub fn new<R>(entries: Vec<(K, V)>) -> Self
+impl<K, V> Map<K, V> {
+    pub fn new(entries: Vec<(K, V)>) -> Self
     where
-        R: SeedableRng + Rng,
         K: Eq + Hash,
-        M: MapHasher<S, H>,
-        H: 'static + UpperBounded + Unsigned + IntoUsize + Zero + Copy + WrappingMul + WrappingAdd,
-        Standard: Distribution<S>,
-        usize: AsPrimitive<H>,
     {
         assert!(
-            entries.len() <= H::max_value().into_usize(),
+            entries.len() <= u16::MAX.into(),
             "cannot have more entries than possible hash values"
         );
 
@@ -55,7 +32,7 @@ impl<M, S, H, K, V> Map<M, S, H, K, V> {
 
         assert!(!has_duplicates(&keys), "duplicate key present");
 
-        let (seed, state) = generate::generate::<R, _, M, _, _>(&keys);
+        let (seed, state) = generate::generate(&keys);
 
         let mut entries = entries;
         sort_by_indices(&mut entries, state.indices);
@@ -64,7 +41,6 @@ impl<M, S, H, K, V> Map<M, S, H, K, V> {
             seed,
             displacements: state.displacements,
             entries,
-            _marker: PhantomData,
         }
     }
 }
@@ -100,22 +76,19 @@ fn sort_by_indices<T>(data: &mut [T], mut indices: Vec<usize>) {
     }
 }
 
-impl<M, S, H, K, V> Map<M, S, H, K, V> {
+impl<K, V> Map<K, V> {
     pub fn get_entry<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
-        M: MapHasher<S, H>,
-        H: 'static + UpperBounded + Unsigned + IntoUsize + Zero + Copy + WrappingMul + WrappingAdd,
     {
         if self.displacements.is_empty() {
             return None;
         }
 
-        let hashes = generate::hash::<_, M, _, _>(key, &self.seed);
-        let (d1, d2) = self.displacements[hashes.0.into_usize() % self.displacements.len()];
-        let index =
-            generate::displace(hashes.1, hashes.2, d1, d2).into_usize() % self.entries.len();
+        let hashes = generate::hash(key, self.seed);
+        let (d1, d2) = self.displacements[hashes.0 as usize % self.displacements.len()];
+        let index = generate::displace(hashes.1, hashes.2, d1, d2) as usize % self.entries.len();
         let entry = &self.entries[index];
 
         if entry.0.borrow() == key {
@@ -128,28 +101,13 @@ impl<M, S, H, K, V> Map<M, S, H, K, V> {
 
 #[cfg(test)]
 mod test {
-    use super::{Map, MapHasher};
-    use core::hash::{BuildHasher, Hasher};
-    use foldhash::quality::{FixedState, FoldHasher};
-    use rand::rngs::StdRng;
-
-    impl MapHasher<u64, u16> for FoldHasher {
-        fn new_with_seed(seed: &u64) -> Self {
-            FixedState::with_seed(*seed).build_hasher()
-        }
-
-        #[allow(clippy::cast_possible_truncation)]
-        fn finish_triple(&self) -> (u16, u16, u16) {
-            let output = self.finish();
-            ((output >> 32) as u16, (output >> 16) as u16, output as u16)
-        }
-    }
+    use super::Map;
 
     #[test]
     fn empty() {
         type Key = u8;
 
-        let map = Map::<FoldHasher, _, _, Key, ()>::new::<StdRng>(vec![]);
+        let map = Map::<Key, ()>::new(vec![]);
 
         for key in Key::MIN..=Key::MAX {
             assert!(map.get_entry(&key).is_none());
@@ -160,7 +118,7 @@ mod test {
     fn single() {
         type Key = u8;
 
-        let map = Map::<FoldHasher, _, _, Key, &str>::new::<StdRng>(vec![(Key::MAX, "foo")]);
+        let map = Map::<Key, &str>::new(vec![(Key::MAX, "foo")]);
 
         for key in Key::MIN..Key::MAX {
             assert!(map.get_entry(&key).is_none());
@@ -176,7 +134,7 @@ mod test {
         let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
         let keys: Vec<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
 
-        let map = Map::<FoldHasher, _, _, Key, &str>::new::<StdRng>(entries);
+        let map = Map::<Key, &str>::new(entries);
 
         for key in Key::MIN..=Key::MAX {
             if !keys.contains(&key) {
