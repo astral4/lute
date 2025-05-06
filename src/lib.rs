@@ -12,6 +12,7 @@ use alloc::vec::Vec;
 use core::{borrow::Borrow, hash::Hash};
 use foldhash::{HashSet, HashSetExt};
 
+#[derive(Clone, Debug, Default)]
 pub struct Map<K, V> {
     seed: u64,
     displacements: Vec<(u16, u16)>,
