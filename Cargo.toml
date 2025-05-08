@@ -13,9 +13,11 @@ keywords = ["map", "phf", "set"]
 categories = ["data-structures"]
 
 [dependencies]
+databake = "0.2"
 foldhash = "0.1"
+proc-macro-crate = "3"
 rand = "0.9"
-rand_xoshiro = "0.7.0"
+rand_xoshiro = "0.7"
 
 [lints.rust]
 async_fn_in_trait = "allow"
