@@ -1,7 +1,9 @@
 use alloc::{vec, vec::Vec};
 use core::hash::{Hash, Hasher};
-use foldhash::{fast::FoldHasher, SharedSeed};
-use rand::{distr::StandardUniform, Rng, SeedableRng};
+use foldhash::fast::FoldHasher;
+use foldhash::SharedSeed;
+use rand::distr::StandardUniform;
+use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
 const FIXED_SEED: u64 = 310_514_310_514_310_514;
