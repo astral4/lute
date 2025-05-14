@@ -7,7 +7,7 @@
 mod generate;
 mod map;
 
-pub use map::Map;
+pub use map::{CowSlice, Map};
 
 extern crate alloc;
 

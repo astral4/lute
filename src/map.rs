@@ -9,7 +9,8 @@ use core::ops::Deref;
 use databake::{quote, Bake, CrateEnv, TokenStream};
 use foldhash::{HashSet, HashSetExt};
 
-enum CowSlice<T: 'static> {
+#[doc(hidden)]
+pub enum CowSlice<T: 'static> {
     Borrowed(&'static [T]),
     Owned(Vec<T>),
 }
@@ -76,7 +77,6 @@ impl<T: Bake> Bake for CowSlice<T> {
     }
 }
 
-#[allow(private_interfaces)]
 #[derive(Clone, Debug, Default)]
 pub struct Map<K: 'static, V: 'static> {
     #[doc(hidden)]
@@ -227,9 +227,6 @@ mod test {
         for key in Key::MIN..Key::MAX {
             assert!(map.get_entry(&key).is_none());
         }
-
-        println!("{map:?}");
-        println!("{}", map.to_tokens());
 
         assert_eq!(map.get_entry(&Key::MAX), Some((&Key::MAX, &"foo")));
     }
