@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use core::borrow::Borrow;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::hash::Hash;
-use core::ops::Deref;
-use databake::{quote, Bake, CrateEnv, TokenStream};
+use core::ops::{Deref, Index};
+use databake::{Bake, CrateEnv, TokenStream, quote};
 use foldhash::{HashSet, HashSetExt};
 
 #[doc(hidden)]
@@ -226,11 +226,12 @@ where
 #[cfg(test)]
 mod test {
     use super::Map;
+    use foldhash::HashSet;
+
+    type Key = u8;
 
     #[test]
     fn empty() {
-        type Key = u8;
-
         let map = Map::<Key, ()>::new(vec![]);
 
         for key in Key::MIN..=Key::MAX {
@@ -241,9 +242,7 @@ mod test {
 
     #[test]
     fn single() {
-        type Key = u8;
-
-        let map = Map::<Key, &str>::new(vec![(Key::MAX, "foo")]);
+        let map = Map::new(vec![(Key::MAX, "foo")]);
 
         for key in Key::MIN..Key::MAX {
             assert!(map.get_entry(&key).is_none());
@@ -257,12 +256,10 @@ mod test {
 
     #[test]
     fn multiple() {
-        type Key = u8;
-
         let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
-        let keys: Vec<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
+        let keys: HashSet<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
 
-        let map = Map::<Key, &str>::new(entries);
+        let map = Map::new(entries);
 
         for key in Key::MIN..=Key::MAX {
             if !keys.contains(&key) {
