@@ -201,6 +201,26 @@ impl<K, V> Map<K, V> {
             None
         }
     }
+
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
+    where
+        Q: Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+    {
+        self.get_entry(key).map(|entry| entry.1)
+    }
+}
+
+impl<Q, K, V> Index<&Q> for Map<K, V>
+where
+    Q: Hash + Eq + ?Sized,
+    K: Borrow<Q>,
+{
+    type Output = V;
+
+    fn index(&self, index: &Q) -> &Self::Output {
+        self.get(index).expect("no entry found for key")
+    }
 }
 
 #[cfg(test)]
@@ -215,6 +235,7 @@ mod test {
 
         for key in Key::MIN..=Key::MAX {
             assert!(map.get_entry(&key).is_none());
+            assert!(map.get(&key).is_none());
         }
     }
 
@@ -226,9 +247,12 @@ mod test {
 
         for key in Key::MIN..Key::MAX {
             assert!(map.get_entry(&key).is_none());
+            assert!(map.get(&key).is_none());
         }
 
         assert_eq!(map.get_entry(&Key::MAX), Some((&Key::MAX, &"foo")));
+        assert_eq!(map.get(&Key::MAX), Some(&"foo"));
+        assert_eq!(map[&Key::MAX], "foo");
     }
 
     #[test]
@@ -243,11 +267,28 @@ mod test {
         for key in Key::MIN..=Key::MAX {
             if !keys.contains(&key) {
                 assert!(map.get_entry(&key).is_none());
+                assert!(map.get(&key).is_none());
             }
         }
 
         assert_eq!(map.get_entry(&1), Some((&1, &"foo")));
+        assert_eq!(map.get(&1), Some(&"foo"));
+        assert_eq!(map[&1], "foo");
+
         assert_eq!(map.get_entry(&3), Some((&3, &"bar")));
+        assert_eq!(map.get(&3), Some(&"bar"));
+        assert_eq!(map[&3], "bar");
+
         assert_eq!(map.get_entry(&9), Some((&9, &"baz")));
+        assert_eq!(map.get(&9), Some(&"baz"));
+        assert_eq!(map[&9], "baz");
+    }
+
+    #[test]
+    #[should_panic = "no entry found for key"]
+    fn panic_index() {
+        let map = Map::new(vec![(Key::MAX, "foo")]);
+
+        let _ = map[&0];
     }
 }
