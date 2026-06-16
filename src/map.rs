@@ -77,7 +77,10 @@ impl<T: Bake> Bake for CowSlice<T> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+/// An immutable map constructed at compile time.
+///
+/// Construct one with [`Map::from_vec`], [`From`], or [`FromIterator`].
+#[derive(Clone, Debug)]
 pub struct Map<K: 'static, V: 'static> {
     #[doc(hidden)]
     pub seed: u64,
@@ -87,8 +90,26 @@ pub struct Map<K: 'static, V: 'static> {
     pub entries: CowSlice<(K, V)>,
 }
 
+impl<K, V> Default for Map<K, V> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            seed: 0,
+            displacements: CowSlice::default(),
+            entries: CowSlice::default(),
+        }
+    }
+}
+
 impl<K, V> Map<K, V> {
-    pub fn new(entries: Vec<(K, V)>) -> Self
+    /// Constructs a `Map` from a vector of key-value entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are more than `u16::MAX` entries, or if any keys are duplicated.
+    #[must_use]
+    #[inline]
+    pub fn from_vec(entries: Vec<(K, V)>) -> Self
     where
         K: Eq + Hash,
     {
@@ -163,7 +184,7 @@ where
             ::#name_tokens::Map {
                 seed: #seed_tokens,
                 displacements: #displacements_tokens,
-                entries_tokens: #entries_tokens
+                entries: #entries_tokens
             }
         }
     }
@@ -174,13 +195,43 @@ where
     K: Bake,
     V: Bake,
 {
+    /// Serializes the `Map` into a token stream of literal Rust code that reconstructs it.
+    /// Used for embedding in generated code.
     #[must_use]
     pub fn to_tokens(&self) -> TokenStream {
         self.bake(&CrateEnv::default())
     }
 }
 
+impl<K, V, const N: usize> From<[(K, V); N]> for Map<K, V>
+where
+    K: Eq + Hash,
+{
+    /// # Panics
+    ///
+    /// Panics if any keys are duplicated.
+    #[inline]
+    fn from(entries: [(K, V); N]) -> Self {
+        Self::from_vec(Vec::from(entries))
+    }
+}
+
+impl<K, V> FromIterator<(K, V)> for Map<K, V>
+where
+    K: Eq + Hash,
+{
+    /// # Panics
+    ///
+    /// Panics if any keys are duplicated.
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        Self::from_vec(iter.into_iter().collect())
+    }
+}
+
 impl<K, V> Map<K, V> {
+    /// Returns the key-value entry corresponding to the given key, if present.
+    #[inline]
     pub fn get_entry<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
         Q: Hash + Eq + ?Sized,
@@ -202,6 +253,8 @@ impl<K, V> Map<K, V> {
         }
     }
 
+    /// Returns a reference to the value corresponding to the given key, if present.
+    #[inline]
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         Q: Hash + Eq + ?Sized,
@@ -218,6 +271,10 @@ where
 {
     type Output = V;
 
+    /// # Panics
+    ///
+    /// Panics if there is no entry for the given key.
+    #[inline]
     fn index(&self, index: &Q) -> &Self::Output {
         self.get(index).expect("no entry found for key")
     }
@@ -232,7 +289,7 @@ mod test {
 
     #[test]
     fn empty() {
-        let map = Map::<Key, ()>::new(vec![]);
+        let map = Map::<Key, ()>::from_vec(vec![]);
 
         for key in Key::MIN..=Key::MAX {
             assert!(map.get_entry(&key).is_none());
@@ -242,7 +299,7 @@ mod test {
 
     #[test]
     fn single() {
-        let map = Map::new(vec![(Key::MAX, "foo")]);
+        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
 
         for key in Key::MIN..Key::MAX {
             assert!(map.get_entry(&key).is_none());
@@ -259,7 +316,7 @@ mod test {
         let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
         let keys: HashSet<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
 
-        let map = Map::new(entries);
+        let map = Map::from_vec(entries);
 
         for key in Key::MIN..=Key::MAX {
             if !keys.contains(&key) {
@@ -284,7 +341,7 @@ mod test {
     #[test]
     #[should_panic = "no entry found for key"]
     fn panic_index() {
-        let map = Map::new(vec![(Key::MAX, "foo")]);
+        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
 
         let _ = map[&0];
     }
