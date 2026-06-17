@@ -349,6 +349,67 @@ mod test {
     }
 
     #[test]
+    fn strategies_across_sizes() {
+        use crate::generate::{DIRECT_MAX, SCAN_MAX};
+
+        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
+        let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
+
+        for n in sizes {
+            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
+            let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
+            let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
+
+            let map = Map::from_vec(entries.clone());
+
+            let count = usize::try_from(n).unwrap();
+            if count <= SCAN_MAX {
+                assert!(
+                    map.displacements.is_empty(),
+                    "scan n={n} should have no displacements"
+                );
+                saw_scan = true;
+            } else if map.displacements.is_empty() {
+                saw_direct = true;
+            } else {
+                saw_chd = true;
+            }
+            if count > DIRECT_MAX {
+                assert!(
+                    !map.displacements.is_empty(),
+                    "n={n} above DIRECT_MAX should use CHD"
+                );
+            }
+
+            for &(k, v) in &entries {
+                assert_eq!(map.get(&k), Some(&v), "present n={n} key={k}");
+                assert_eq!(map.get_entry(&k), Some((&k, &v)), "present n={n} key={k}");
+            }
+
+            let mut checked = 0;
+            for k in 0u32.. {
+                if checked >= 500 {
+                    break;
+                }
+                if !present.contains(&k) {
+                    assert!(map.get(&k).is_none(), "absent n={n} key={k}");
+                    checked += 1;
+                }
+            }
+        }
+
+        assert!(saw_scan, "scan strategy never used");
+        assert!(saw_direct, "direct strategy never used");
+        assert!(saw_chd, "CHD strategy never used");
+    }
+
+    #[test]
+    #[should_panic = "duplicate key present"]
+    fn panic_duplicate_key() {
+        drop(Map::from_vec(vec![(Key::MAX, "foo"), (Key::MAX, "bar")]));
+    }
+
+    #[test]
     #[should_panic = "no entry found for key"]
     fn panic_index() {
         let map = Map::from_vec(vec![(Key::MAX, "foo")]);
