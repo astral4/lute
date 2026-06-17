@@ -128,6 +128,8 @@ impl<K, V> Map<K, V> {
         let disps = &self.displacements;
         let hash = hash(key, self.seed);
 
+        // CHD always produces at least one bucket (hence a non-empty displacement table), while the direct strategy produces none.
+        // The hash is minimal and perfect, so the number of slots equals the entry count `n`.
         let index = if disps.is_empty() {
             // Direct strategy
             fastrange(hash, n)

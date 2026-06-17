@@ -33,6 +33,8 @@ const DIRECT_BUDGET: usize = 1 << 16;
 /// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
 const CHD_BUDGET: usize = 1 << 8;
 
+const MAX_LEN: usize = u16::MAX as usize;
+
 struct MapState {
     seed: u64,
     displacements: Vec<(u16, u16)>,
@@ -136,6 +138,8 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     // `map` slots hold the index of the key placed there. `EMPTY` is a sentinel value marking a free slot.
     // Real indices are less than `table_len`, which is at most `u16::MAX`, so `usize::MAX` is never a valid index.
     const EMPTY: usize = usize::MAX;
+
+    debug_assert!(table_len <= MAX_LEN, "table_len must fit in u16");
 
     let num_buckets = table_len.div_ceil(LAMBDA);
     // Lookups distinguish the direct strategy from CHD based on whether
@@ -280,16 +284,18 @@ impl<K, V> Map<K, V> {
     ///
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
-    #[must_use]
+    /// Panics if:
+    /// - there are more than 65535 entries
+    /// - any duplicate keys are present
+    /// - no perfect hash function can be found for the keys
     #[inline]
     fn from_vec(entries: Vec<(K, V)>) -> Self
     where
         K: Eq + Hash,
     {
         assert!(
-            entries.len() <= u16::MAX.into(),
-            "cannot have more than 65535 entries"
+            entries.len() <= MAX_LEN,
+            "cannot have more than {MAX_LEN} entries"
         );
 
         let keys: Vec<_> = entries.iter().map(|entry| &entry.0).collect();
@@ -317,7 +323,10 @@ where
 {
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    /// Panics if:
+    /// - there are more than 65535 entries
+    /// - any duplicate keys are present
+    /// - no perfect hash function can be found for the keys
     #[inline]
     fn from(entries: [(K, V); N]) -> Self {
         Self::from_vec(Vec::from(entries))
@@ -330,7 +339,10 @@ where
 {
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    /// Panics if:
+    /// - there are more than 65535 entries
+    /// - any duplicate keys are present
+    /// - no perfect hash function can be found for the keys
     #[inline]
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self::from_vec(iter.into_iter().collect())
@@ -342,8 +354,10 @@ impl<T> Set<T> {
     ///
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
-    #[must_use]
+    /// Panics if:
+    /// - there are more than 65535 values
+    /// - any duplicate values are present
+    /// - no perfect hash function can be found for the values
     #[inline]
     fn from_vec(values: Vec<T>) -> Self
     where
@@ -361,7 +375,10 @@ where
 {
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    /// Panics if:
+    /// - there are more than 65535 values
+    /// - any duplicate values are present
+    /// - no perfect hash function can be found for the values
     #[inline]
     fn from(values: [T; N]) -> Self {
         Self::from_vec(Vec::from(values))
@@ -374,7 +391,10 @@ where
 {
     /// # Panics
     ///
-    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    /// Panics if:
+    /// - there are more than 65535 values
+    /// - any duplicate values are present
+    /// - no perfect hash function can be found for the values
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from_vec(iter.into_iter().collect())
