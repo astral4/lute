@@ -12,7 +12,7 @@ pub use map::{CowSlice, Map};
 extern crate alloc;
 
 use databake::TokenStream;
-use proc_macro_crate::{crate_name, FoundCrate};
+use proc_macro_crate::{FoundCrate, crate_name};
 
 fn get_crate_name() -> (&'static str, TokenStream) {
     let name = match crate_name("haph").expect("crate should be included as dependency") {

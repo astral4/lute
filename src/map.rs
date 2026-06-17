@@ -122,13 +122,13 @@ impl<K, V> Map<K, V> {
 
         assert!(!has_duplicates(&keys), "duplicate key present");
 
-        let (seed, state) = generate::generate(&keys);
+        let state = generate::generate(&keys);
 
         let mut entries = entries;
         sort_by_indices(&mut entries, state.indices);
 
         Self {
-            seed,
+            seed: state.seed,
             displacements: CowSlice::Owned(state.displacements),
             entries: CowSlice::Owned(entries),
         }
@@ -237,17 +237,34 @@ impl<K, V> Map<K, V> {
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
-        if self.displacements.is_empty() {
-            return None;
+        let entries = &self.entries;
+        let n = entries.len();
+
+        if n <= generate::SCAN_MAX {
+            // Linear scanning
+            return entries
+                .iter()
+                .find(|(k, _)| k.borrow() == key)
+                .map(|(k, v)| (k, v));
         }
 
-        let hashes = generate::hash(key, self.seed);
-        let (d1, d2) = self.displacements[hashes.0 as usize % self.displacements.len()];
-        let index = generate::displace(hashes.1, hashes.2, d1, d2) as usize % self.entries.len();
-        let entry = &self.entries[index];
+        let disps = &self.displacements;
+        let hash = generate::hash(key, self.seed);
 
-        if entry.0.borrow() == key {
-            Some((&entry.0, &entry.1))
+        let index = if disps.is_empty() {
+            // Direct strategy
+            generate::fastrange(hash, n)
+        } else {
+            // CHD
+            let (f1, f2) = generate::split(hash);
+            let (d1, d2) = disps[generate::bucket(hash, disps.len())];
+            generate::displace(f1, f2, d1, d2) as usize % n
+        };
+
+        let (k, v) = &entries[index];
+
+        if k.borrow() == key {
+            Some((k, v))
         } else {
             None
         }
@@ -260,7 +277,7 @@ impl<K, V> Map<K, V> {
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
-        self.get_entry(key).map(|entry| entry.1)
+        self.get_entry(key).map(|(_, v)| v)
     }
 }
 
