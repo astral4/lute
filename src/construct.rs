@@ -23,6 +23,7 @@ const LAMBDA: usize = 5;
 const DIRECT_MAX: usize = 10;
 
 const _: () = assert!(SCAN_MAX < DIRECT_MAX);
+const _: () = assert!(DIRECT_MAX <= usize::BITS as usize);
 
 /// Number of seeds tried for the direct strategy before falling back to CHD.
 const DIRECT_BUDGET: usize = 1 << 16;
@@ -40,39 +41,6 @@ struct MapState {
 
 /// The CHD displacement table plus the permutation mapping each slot to the original entry index.
 type ChdTables = (Vec<(u16, u16)>, Vec<usize>);
-
-/// A reusable set of occupied slots.
-struct SlotSet {
-    stamp: Vec<u64>,
-    generation: u64,
-}
-
-impl SlotSet {
-    #[inline]
-    fn new(len: usize) -> Self {
-        Self {
-            stamp: vec![0; len],
-            generation: 0,
-        }
-    }
-
-    /// Begins a new round, vacating every slot.
-    #[inline]
-    fn bump(&mut self) {
-        self.generation += 1;
-    }
-
-    /// Marks `slot` occupied for this round, returning `false` if it was already taken and `true` if it was free.
-    #[inline]
-    fn insert(&mut self, slot: usize) -> bool {
-        if self.stamp[slot] == self.generation {
-            false
-        } else {
-            self.stamp[slot] = self.generation;
-            true
-        }
-    }
-}
 
 #[inline]
 fn generate<T>(entries: &[T]) -> MapState
@@ -103,18 +71,20 @@ where
     T: Hash,
 {
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
-    let mut taken = SlotSet::new(n);
     let mut slot_to_orig = vec![0usize; n];
 
     'seeds: for _ in 0..DIRECT_BUDGET {
         let seed = rng.next_u64();
-        taken.bump();
+        // Bit `s` marks slot `s` being taken on this attempt.
+        let mut taken = 0usize;
 
         for (i, entry) in entries.iter().enumerate() {
             let slot = fastrange(hash(entry, seed), n);
-            if !taken.insert(slot) {
+            let bit = 1 << slot;
+            if taken & bit != 0 {
                 continue 'seeds;
             }
+            taken |= bit;
             slot_to_orig[slot] = i;
         }
 
@@ -208,7 +178,6 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
         usize::from(starts[b as usize + 1] - starts[b as usize])
     });
     let mut values_to_add = Vec::with_capacity(max_bucket);
-    let mut taken = SlotSet::new(table_len);
     let mut map = vec![EMPTY; table_len];
     let mut displacements = vec![(0u16, 0u16); num_buckets];
 
@@ -229,14 +198,15 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
         for d1 in 0..bound {
             'disps: for d2 in 0..bound {
                 values_to_add.clear();
-                taken.bump();
 
                 for &key in keys {
                     let key = key as usize;
                     let (f1, f2) = splits[key];
                     let index = displace(f1, f2, d1, d2) as usize % table_len;
 
-                    if map[index] != EMPTY || !taken.insert(index) {
+                    // Reject if the slot is taken by a placed bucket (`map`)
+                    // or an earlier key of this bucket under the current displacement (`values_to_add`).
+                    if map[index] != EMPTY || values_to_add.iter().any(|&(idx, _)| idx == index) {
                         continue 'disps;
                     }
 
