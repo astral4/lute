@@ -19,6 +19,13 @@ proc-macro-crate = "3"
 rand = "0.10"
 rand_xoshiro = "0.8"
 
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "bench"
+harness = false
+
 [lints.rust]
 async_fn_in_trait = "allow"
 ffi_unwind_calls = "warn"
