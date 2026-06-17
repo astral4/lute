@@ -6,15 +6,15 @@ use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
 
-/// Returns the path tokens for the `haph` crate and registers it with the bake environment.
+/// Returns the path tokens for the `lute` crate and registers it with the bake environment.
 ///
-/// Generated code defaults to `::haph`. When Cargo can resolve how the consuming crate imports `haph`, that name is used instead.
+/// Generated code defaults to `::lute`. When Cargo can resolve how the consuming crate imports `lute`, that name is used instead.
 fn crate_path(ctx: &CrateEnv) -> TokenStream {
     // `proc-macro-crate` caches resolution per-manifest with timestamp invalidation,
     // so calling it on every bake is cheap. The common case and fallback use the `'static` literal.
-    let name: &'static str = match crate_name("haph") {
-        Ok(FoundCrate::Name(name)) if name != "haph" => name.leak(),
-        _ => "haph",
+    let name: &'static str = match crate_name("lute") {
+        Ok(FoundCrate::Name(name)) if name != "lute" => name.leak(),
+        _ => "lute",
     };
 
     ctx.insert(name);

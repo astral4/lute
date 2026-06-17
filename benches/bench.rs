@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 use core::hash::Hash;
 use divan::{Bencher, counter::ItemsCount};
-use haph::Map;
+use lute::Map;
 
 fn main() {
     divan::main();

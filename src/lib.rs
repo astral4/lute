@@ -1,7 +1,7 @@
-//! # haph
+//! # lute
 //!
 //! This crate provides immutable maps and sets built from fixed collections of up to 65535 (i.e. 2¹⁶ − 1) entries.
-//! It is optimized for small sizes and use cases like lookup tables. It is usable in a `no_std` environment by default.
+//! It is designed with small sizes and use cases like lookup tables in mind. It is usable in a `no_std` environment by default.
 //!
 //! ## Feature flags
 //!
@@ -11,7 +11,7 @@
 //! ## Usage
 //!
 //! ```
-//! use haph::Map;
+//! use lute::Map;
 //!
 //! let planets = Map::from([("Mercury", 1), ("Venus", 2), ("Earth", 3)]);
 //! assert_eq!(planets.get("Earth"), Some(&3));
@@ -19,7 +19,7 @@
 //! ```
 //!
 //! ```
-//! use haph::Set;
+//! use lute::Set;
 //!
 //! let primes = Set::from([2, 3, 5, 7, 11]);
 //! assert!(primes.contains(&7));
@@ -34,16 +34,16 @@
 //!
 //! ```toml
 //! [dependencies]
-//! haph = { version = "0.0.0", default-features = false }
+//! lute = { version = "0.0.0", default-features = false }
 //!
 //! [build-dependencies]
-//! haph = { version = "0.0.0", features = ["codegen"] }
+//! lute = { version = "0.0.0", features = ["codegen"] }
 //! ```
 //!
 //! In `build.rs`, build the map and write it to a file in `OUT_DIR`:
 //!
 //! ```ignore
-//! use haph::Map;
+//! use lute::Map;
 //! use std::env::var;
 //! use std::fs::write;
 //! use std::path::Path;
@@ -52,7 +52,7 @@
 //!     let planets = Map::from([("Mercury", 1), ("Venus", 2), ("Earth", 3), ("Mars", 4)]);
 //!
 //!     let code = format!(
-//!         "pub static PLANETS: ::haph::Map<&'static str, i32> = {};",
+//!         "pub static PLANETS: ::lute::Map<&'static str, i32> = {};",
 //!         planets.to_tokens()
 //!     );
 //!

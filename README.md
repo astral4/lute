@@ -1,11 +1,11 @@
-# haph
+# lute
 
-[![Crates.io](https://img.shields.io/crates/v/haph)](https://crates.io/crates/haph)
-[![Docs.rs](https://img.shields.io/docsrs/haph)](https://docs.rs/haph)
-[![License](https://img.shields.io/crates/l/haph)](#license)
+[![Crates.io](https://img.shields.io/crates/v/lute)](https://crates.io/crates/lute)
+[![Docs.rs](https://img.shields.io/docsrs/lute)](https://docs.rs/lute)
+[![License](https://img.shields.io/crates/l/lute)](#license)
 
-`haph` is a Rust library for immutable maps and sets built from fixed collections of up to 65535 (i.e. $2^{16} - 1$) entries.
-It is optimized for small sizes and use cases like lookup tables. It is usable in a `no_std` environment by default.
+`lute` is a Rust library for immutable maps and sets built from fixed collections of up to 65535 (i.e. $2^{16} - 1$) entries.
+It is designed with small sizes and use cases like lookup tables in mind. It is usable in a `no_std` environment by default.
 
 ## License
 

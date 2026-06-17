@@ -1,16 +1,16 @@
 [package]
-name = "haph"
+name = "lute"
 version = "0.0.0"
-authors = ["astral4"]
+authors = ["Kyle Chen"]
 edition = "2024"
 rust-version = "1.88"
-description = "Hasher-agnostic static hashmaps"
-documentation = "https://docs.rs/haph"
+description = "Immutable maps and sets built from fixed entries"
+documentation = "https://docs.rs/lute"
 readme = "README.md"
-repository = "https://github.com/astral4/haph"
+repository = "https://github.com/astral4/lute"
 license = "MIT OR Apache-2.0"
 keywords = ["map", "phf", "set"]
-categories = ["data-structures"]
+categories = ["data-structures", "no-std"]
 
 [package.metadata.docs.rs]
 all-features = true
