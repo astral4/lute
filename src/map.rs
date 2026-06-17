@@ -320,8 +320,6 @@ impl<'a, K, V> IntoIterator for &'a Map<K, V> {
 #[cfg(all(test, feature = "construct"))]
 mod test {
     use super::Map;
-    use crate::construct::DIRECT_MAX;
-    use crate::kernel::SCAN_MAX;
     use core::hash::{Hash, Hasher};
     use std::collections::HashSet;
 
@@ -329,9 +327,9 @@ mod test {
 
     #[test]
     fn empty() {
-        let map = Map::<Key, ()>::from([]);
+        let map: Map<Key, ()> = Map::from([]);
 
-        assert_eq!(map, Map::<Key, ()>::default());
+        assert_eq!(map, Map::default());
 
         assert_eq!(map.len(), 0);
         assert!(map.is_empty());
@@ -443,59 +441,6 @@ mod test {
         assert_eq!(map.get("beta"), Some(&2));
         assert_eq!(map["beta"], 2);
         assert_eq!(map.get("gamma"), None);
-    }
-
-    #[test]
-    fn strategies_across_sizes() {
-        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
-        let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
-
-        for n in sizes {
-            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
-            let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
-            let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
-
-            let map: Map<_, _> = entries.clone().into_iter().collect();
-
-            let count = usize::try_from(n).unwrap();
-            if count <= SCAN_MAX {
-                assert!(
-                    map.displacements.is_empty(),
-                    "scan n={n} should have no displacements"
-                );
-                saw_scan = true;
-            } else if map.displacements.is_empty() {
-                saw_direct = true;
-            } else {
-                saw_chd = true;
-            }
-            if count > DIRECT_MAX {
-                assert!(
-                    !map.displacements.is_empty(),
-                    "n={n} above DIRECT_MAX should use CHD"
-                );
-            }
-
-            for &(k, v) in &entries {
-                assert_eq!(map.get(&k), Some(&v), "present n={n} key={k}");
-                assert_eq!(map.get_entry(&k), Some((&k, &v)), "present n={n} key={k}");
-            }
-
-            let mut checked = 0;
-            for k in 0u32.. {
-                if checked >= 500 {
-                    break;
-                }
-                if !present.contains(&k) {
-                    assert!(map.get(&k).is_none(), "absent n={n} key={k}");
-                    checked += 1;
-                }
-            }
-        }
-
-        assert!(saw_scan, "scan strategy never used");
-        assert!(saw_direct, "direct strategy never used");
-        assert!(saw_chd, "CHD strategy never used");
     }
 
     #[test]

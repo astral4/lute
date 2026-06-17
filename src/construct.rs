@@ -18,7 +18,7 @@ const LAMBDA: usize = 5;
 /// Maps with at most this many entries try the displacement-free "direct" strategy: a single seed
 /// under which the keys are already perfect. The search costs roughly `e^n / sqrt(n)` seed attempts
 /// (each hashing every key), so this strategy is only faster than CHD at sufficiently small sizes.
-pub(crate) const DIRECT_MAX: usize = 10;
+const DIRECT_MAX: usize = 10;
 
 const _: () = assert!(SCAN_MAX < DIRECT_MAX);
 
@@ -132,7 +132,7 @@ fn generate_chd<T>(entries: &[T], n: usize) -> MapState
 where
     T: Hash,
 {
-    let mut hashes: Vec<u64> = Vec::with_capacity(n);
+    let mut hashes: Vec<_> = Vec::with_capacity(n);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
 
     for _ in 0..CHD_BUDGET {
@@ -195,11 +195,11 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
 
     // Process the largest buckets first while the table is mostly empty.
     // This is a total order, so the sort results and output data are reproducible even with unstable sorting.
-    let mut order: Vec<u16> = (0..num_buckets as u16).collect();
+    let mut order: Vec<_> = (0..num_buckets as u16).collect();
     order.sort_unstable_by_key(|&b| (Reverse(starts[b as usize + 1] - starts[b as usize]), b));
 
     let bound = table_len as u16;
-    let splits: Vec<(u16, u16)> = hashes.iter().map(|&h| split(h)).collect();
+    let splits: Vec<_> = hashes.iter().map(|&h| split(h)).collect();
     // `values_to_add` only ever holds one bucket's keys at a time.
     // The largest bucket is processed first, so sizing to it avoids reallocating during the search.
     let max_bucket = order.first().map_or(0, |&b| {
@@ -379,5 +379,66 @@ where
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from_vec(iter.into_iter().collect())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::DIRECT_MAX;
+    use crate::kernel::SCAN_MAX;
+    use crate::map::Map;
+    use std::collections::HashSet;
+
+    #[test]
+    fn strategies_across_sizes() {
+        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
+        let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
+
+        for n in sizes {
+            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
+            let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
+            let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
+
+            let map: Map<_, _> = entries.clone().into_iter().collect();
+
+            let count = usize::try_from(n).unwrap();
+            if count <= SCAN_MAX {
+                assert!(
+                    map.displacements.is_empty(),
+                    "scan n={n} should have no displacements"
+                );
+                saw_scan = true;
+            } else if map.displacements.is_empty() {
+                saw_direct = true;
+            } else {
+                saw_chd = true;
+            }
+            if count > DIRECT_MAX {
+                assert!(
+                    !map.displacements.is_empty(),
+                    "n={n} above DIRECT_MAX should use CHD"
+                );
+            }
+
+            for &(k, v) in &entries {
+                assert_eq!(map.get(&k), Some(&v), "present n={n} key={k}");
+                assert_eq!(map.get_entry(&k), Some((&k, &v)), "present n={n} key={k}");
+            }
+
+            let mut checked = 0;
+            for k in 0u32.. {
+                if checked >= 500 {
+                    break;
+                }
+                if !present.contains(&k) {
+                    assert!(map.get(&k).is_none(), "absent n={n} key={k}");
+                    checked += 1;
+                }
+            }
+        }
+
+        assert!(saw_scan, "scan strategy never used");
+        assert!(saw_direct, "direct strategy never used");
+        assert!(saw_chd, "CHD strategy never used");
     }
 }

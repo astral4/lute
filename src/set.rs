@@ -132,9 +132,9 @@ mod test {
 
     #[test]
     fn empty() {
-        let set = Set::<Value>::from([]);
+        let set: Set<Value> = Set::from([]);
 
-        assert_eq!(set, Set::<Value>::default());
+        assert_eq!(set, Set::default());
 
         assert_eq!(set.len(), 0);
         assert!(set.is_empty());
@@ -163,7 +163,7 @@ mod test {
 
     #[test]
     fn multiple() {
-        let values: Vec<Value> = vec![1, 3, 9];
+        let values: Vec<_> = vec![1, 3, 9];
         let present: HashSet<_> = values.iter().copied().collect();
 
         let set: Set<_> = values.into_iter().collect();
