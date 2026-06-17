@@ -1,13 +1,12 @@
-use crate::generate;
-use crate::get_crate_name;
+use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 use core::borrow::Borrow;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::hash::Hash;
+use core::iter::FusedIterator;
 use core::ops::{Deref, Index};
-use databake::{Bake, CrateEnv, TokenStream, quote};
-use foldhash::{HashSet, HashSetExt};
+use core::slice::Iter;
 
 #[doc(hidden)]
 pub enum CowSlice<T: 'static> {
@@ -63,24 +62,10 @@ impl<T> Default for CowSlice<T> {
     }
 }
 
-impl<T: Bake> Bake for CowSlice<T> {
-    fn bake(&self, ctx: &CrateEnv) -> TokenStream {
-        let (name, name_tokens) = get_crate_name();
-
-        ctx.insert(name);
-
-        let tokens = self.iter().map(|d| d.bake(ctx));
-
-        quote! {
-            ::#name_tokens::CowSlice::Borrowed(&[#(#tokens),*])
-        }
-    }
-}
-
-/// An immutable map constructed at compile time.
+/// An immutable map.
 ///
 /// Construct one with [`Map::from_vec`], [`From`], or [`FromIterator`].
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Map<K: 'static, V: 'static> {
     #[doc(hidden)]
     pub seed: u64,
@@ -88,6 +73,12 @@ pub struct Map<K: 'static, V: 'static> {
     pub displacements: CowSlice<(u16, u16)>,
     #[doc(hidden)]
     pub entries: CowSlice<(K, V)>,
+}
+
+impl<K: Debug, V: Debug> Debug for Map<K, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_map().entries(self.entries()).finish()
+    }
 }
 
 impl<K, V> Default for Map<K, V> {
@@ -102,127 +93,6 @@ impl<K, V> Default for Map<K, V> {
 }
 
 impl<K, V> Map<K, V> {
-    /// Constructs a `Map` from a vector of key-value entries.
-    ///
-    /// # Panics
-    ///
-    /// Panics if there are more than `u16::MAX` entries, or if any keys are duplicated.
-    #[must_use]
-    #[inline]
-    pub fn from_vec(entries: Vec<(K, V)>) -> Self
-    where
-        K: Eq + Hash,
-    {
-        assert!(
-            entries.len() <= u16::MAX.into(),
-            "cannot have more entries than possible hash values"
-        );
-
-        let keys: Vec<_> = entries.iter().map(|entry| &entry.0).collect();
-
-        assert!(!has_duplicates(&keys), "duplicate key present");
-
-        let state = generate::generate(&keys);
-
-        let mut entries = entries;
-        sort_by_indices(&mut entries, state.indices);
-
-        Self {
-            seed: state.seed,
-            displacements: CowSlice::Owned(state.displacements),
-            entries: CowSlice::Owned(entries),
-        }
-    }
-}
-
-#[inline]
-fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
-    let mut set = HashSet::with_capacity(items.len());
-    !items.iter().all(|item| set.insert(item))
-}
-
-#[inline]
-fn sort_by_indices<T>(data: &mut [T], mut indices: Vec<usize>) {
-    for idx in 0..data.len() {
-        if indices[idx] != idx {
-            let mut current_idx = idx;
-            loop {
-                let target_idx = indices[current_idx];
-                indices[current_idx] = current_idx;
-                if indices[target_idx] == target_idx {
-                    break;
-                }
-                data.swap(current_idx, target_idx);
-                current_idx = target_idx;
-            }
-        }
-    }
-}
-
-impl<K, V> Bake for Map<K, V>
-where
-    K: Bake,
-    V: Bake,
-{
-    fn bake(&self, ctx: &CrateEnv) -> TokenStream {
-        let (name, name_tokens) = get_crate_name();
-
-        ctx.insert(name);
-
-        let seed_tokens = self.seed.bake(ctx);
-        let displacements_tokens = self.displacements.bake(ctx);
-        let entries_tokens = self.entries.bake(ctx);
-
-        quote! {
-            ::#name_tokens::Map {
-                seed: #seed_tokens,
-                displacements: #displacements_tokens,
-                entries: #entries_tokens
-            }
-        }
-    }
-}
-
-impl<K, V> Map<K, V>
-where
-    K: Bake,
-    V: Bake,
-{
-    /// Serializes the `Map` into a token stream of literal Rust code that reconstructs it.
-    /// Used for embedding in generated code.
-    #[must_use]
-    pub fn to_tokens(&self) -> TokenStream {
-        self.bake(&CrateEnv::default())
-    }
-}
-
-impl<K, V, const N: usize> From<[(K, V); N]> for Map<K, V>
-where
-    K: Eq + Hash,
-{
-    /// # Panics
-    ///
-    /// Panics if any keys are duplicated.
-    #[inline]
-    fn from(entries: [(K, V); N]) -> Self {
-        Self::from_vec(Vec::from(entries))
-    }
-}
-
-impl<K, V> FromIterator<(K, V)> for Map<K, V>
-where
-    K: Eq + Hash,
-{
-    /// # Panics
-    ///
-    /// Panics if any keys are duplicated.
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
-        Self::from_vec(iter.into_iter().collect())
-    }
-}
-
-impl<K, V> Map<K, V> {
     /// Returns the key-value entry corresponding to the given key, if present.
     #[inline]
     pub fn get_entry<Q>(&self, key: &Q) -> Option<(&K, &V)>
@@ -233,7 +103,7 @@ impl<K, V> Map<K, V> {
         let entries = &self.entries;
         let n = entries.len();
 
-        if n <= generate::SCAN_MAX {
+        if n <= SCAN_MAX {
             // Linear scanning
             return entries
                 .iter()
@@ -242,16 +112,16 @@ impl<K, V> Map<K, V> {
         }
 
         let disps = &self.displacements;
-        let hash = generate::hash(key, self.seed);
+        let hash = hash(key, self.seed);
 
         let index = if disps.is_empty() {
             // Direct strategy
-            generate::fastrange(hash, n)
+            fastrange(hash, n)
         } else {
             // CHD
-            let (f1, f2) = generate::split(hash);
-            let (d1, d2) = disps[generate::bucket(hash, disps.len())];
-            generate::displace(f1, f2, d1, d2) as usize % n
+            let (f1, f2) = split(hash);
+            let (d1, d2) = disps[bucket(hash, disps.len())];
+            displace(f1, f2, d1, d2) as usize % n
         };
 
         let (k, v) = &entries[index];
@@ -272,6 +142,57 @@ impl<K, V> Map<K, V> {
     {
         self.get_entry(key).map(|(_, v)| v)
     }
+
+    /// Returns `true` if the map contains an entry for the given key.
+    #[inline]
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        Q: Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+    {
+        self.get_entry(key).is_some()
+    }
+
+    /// Returns the number of entries in the map.
+    #[must_use]
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns `true` if the map contains no entries.
+    #[must_use]
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Returns an iterator over the key-value pairs of the map in an unspecified order.
+    #[must_use]
+    #[inline]
+    pub fn entries(&self) -> Entries<'_, K, V> {
+        Entries {
+            inner: self.entries.iter(),
+        }
+    }
+
+    /// Returns an iterator over the keys of the map in an unspecified order.
+    #[must_use]
+    #[inline]
+    pub fn keys(&self) -> Keys<'_, K, V> {
+        Keys {
+            inner: self.entries.iter(),
+        }
+    }
+
+    /// Returns an iterator over the values of the map in an unspecified order.
+    #[must_use]
+    #[inline]
+    pub fn values(&self) -> Values<'_, K, V> {
+        Values {
+            inner: self.entries.iter(),
+        }
+    }
 }
 
 impl<Q, K, V> Index<&Q> for Map<K, V>
@@ -290,130 +211,108 @@ where
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::Map;
-    use foldhash::HashSet;
+impl<K, V> PartialEq for Map<K, V>
+where
+    K: Eq + Hash,
+    V: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.entries().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
 
-    type Key = u8;
+impl<K, V> Eq for Map<K, V>
+where
+    K: Eq + Hash,
+    V: Eq,
+{
+}
 
-    #[test]
-    fn empty() {
-        let map = Map::<Key, ()>::from_vec(vec![]);
+/// An iterator over the key-value pairs of a [`Map`].
+///
+/// Created by [`Map::entries`].
+#[derive(Clone, Debug)]
+pub struct Entries<'a, K, V> {
+    inner: Iter<'a, (K, V)>,
+}
 
-        for key in Key::MIN..=Key::MAX {
-            assert!(map.get_entry(&key).is_none());
-            assert!(map.get(&key).is_none());
-        }
+impl<'a, K, V> Iterator for Entries<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(k, v)| (k, v))
     }
 
-    #[test]
-    fn single() {
-        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
 
-        for key in Key::MIN..Key::MAX {
-            assert!(map.get_entry(&key).is_none());
-            assert!(map.get(&key).is_none());
-        }
+impl<K, V> ExactSizeIterator for Entries<'_, K, V> {}
+impl<K, V> FusedIterator for Entries<'_, K, V> {}
 
-        assert_eq!(map.get_entry(&Key::MAX), Some((&Key::MAX, &"foo")));
-        assert_eq!(map.get(&Key::MAX), Some(&"foo"));
-        assert_eq!(map[&Key::MAX], "foo");
+/// An iterator over the keys of a [`Map`].
+///
+/// Created by [`Map::keys`].
+#[derive(Clone, Debug)]
+pub struct Keys<'a, K, V> {
+    inner: Iter<'a, (K, V)>,
+}
+
+impl<'a, K, V> Iterator for Keys<'a, K, V> {
+    type Item = &'a K;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(k, _)| k)
     }
 
-    #[test]
-    fn multiple() {
-        let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
-        let keys: HashSet<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
 
-        let map = Map::from_vec(entries);
+impl<K, V> ExactSizeIterator for Keys<'_, K, V> {}
+impl<K, V> FusedIterator for Keys<'_, K, V> {}
 
-        for key in Key::MIN..=Key::MAX {
-            if !keys.contains(&key) {
-                assert!(map.get_entry(&key).is_none());
-                assert!(map.get(&key).is_none());
-            }
-        }
+/// An iterator over the values of a [`Map`].
+///
+/// Created by [`Map::values`].
+#[derive(Clone, Debug)]
+pub struct Values<'a, K, V> {
+    inner: Iter<'a, (K, V)>,
+}
 
-        assert_eq!(map.get_entry(&1), Some((&1, &"foo")));
-        assert_eq!(map.get(&1), Some(&"foo"));
-        assert_eq!(map[&1], "foo");
+impl<'a, K, V> Iterator for Values<'a, K, V> {
+    type Item = &'a V;
 
-        assert_eq!(map.get_entry(&3), Some((&3, &"bar")));
-        assert_eq!(map.get(&3), Some(&"bar"));
-        assert_eq!(map[&3], "bar");
-
-        assert_eq!(map.get_entry(&9), Some((&9, &"baz")));
-        assert_eq!(map.get(&9), Some(&"baz"));
-        assert_eq!(map[&9], "baz");
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(_, v)| v)
     }
 
-    #[test]
-    fn strategies_across_sizes() {
-        use crate::generate::{DIRECT_MAX, SCAN_MAX};
-
-        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
-        let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
-
-        for n in sizes {
-            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
-            let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
-            let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
-
-            let map = Map::from_vec(entries.clone());
-
-            let count = usize::try_from(n).unwrap();
-            if count <= SCAN_MAX {
-                assert!(
-                    map.displacements.is_empty(),
-                    "scan n={n} should have no displacements"
-                );
-                saw_scan = true;
-            } else if map.displacements.is_empty() {
-                saw_direct = true;
-            } else {
-                saw_chd = true;
-            }
-            if count > DIRECT_MAX {
-                assert!(
-                    !map.displacements.is_empty(),
-                    "n={n} above DIRECT_MAX should use CHD"
-                );
-            }
-
-            for &(k, v) in &entries {
-                assert_eq!(map.get(&k), Some(&v), "present n={n} key={k}");
-                assert_eq!(map.get_entry(&k), Some((&k, &v)), "present n={n} key={k}");
-            }
-
-            let mut checked = 0;
-            for k in 0u32.. {
-                if checked >= 500 {
-                    break;
-                }
-                if !present.contains(&k) {
-                    assert!(map.get(&k).is_none(), "absent n={n} key={k}");
-                    checked += 1;
-                }
-            }
-        }
-
-        assert!(saw_scan, "scan strategy never used");
-        assert!(saw_direct, "direct strategy never used");
-        assert!(saw_chd, "CHD strategy never used");
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
+}
 
-    #[test]
-    #[should_panic = "duplicate key present"]
-    fn panic_duplicate_key() {
-        drop(Map::from_vec(vec![(Key::MAX, "foo"), (Key::MAX, "bar")]));
-    }
+impl<K, V> ExactSizeIterator for Values<'_, K, V> {}
+impl<K, V> FusedIterator for Values<'_, K, V> {}
 
-    #[test]
-    #[should_panic = "no entry found for key"]
-    fn panic_index() {
-        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+#[expect(
+    clippy::into_iter_without_iter,
+    reason = "the by-reference iterator is `Map::entries`"
+)]
+impl<'a, K, V> IntoIterator for &'a Map<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = Entries<'a, K, V>;
 
-        let _ = map[&0];
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries()
     }
 }

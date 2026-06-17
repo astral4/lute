@@ -12,12 +12,21 @@ license = "MIT OR Apache-2.0"
 keywords = ["map", "phf", "set"]
 categories = ["data-structures"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-databake = "0.2"
-foldhash = "0.2"
-proc-macro-crate = "3"
-rand = "0.10"
-rand_xoshiro = "0.8"
+foldhash = { version = "0.2", default-features = false }
+databake = { version = "0.2", optional = true }
+proc-macro-crate = { version = "3", optional = true }
+hashbrown = { version = "0.17", optional = true, default-features = false, features = ["default-hasher"] }
+rand_core = { version = "0.10", optional = true, default-features = false }
+rand_xoshiro = { version = "0.8", optional = true, default-features = false }
+
+[features]
+default = ["construct"]
+construct = ["dep:hashbrown", "dep:rand_core", "dep:rand_xoshiro"]
+codegen = ["construct", "dep:databake", "dep:proc-macro-crate"]
 
 [dev-dependencies]
 divan = "0.1"
@@ -25,6 +34,7 @@ divan = "0.1"
 [[bench]]
 name = "bench"
 harness = false
+required-features = ["construct"]
 
 [lints.rust]
 async_fn_in_trait = "allow"
@@ -48,6 +58,9 @@ unused_import_braces = "deny"
 unused_lifetimes = "deny"
 unused_macro_rules = "deny"
 unused_qualifications = "deny"
+
+[lints.rustdoc]
+redundant_explicit_links = "allow"
 
 [lints.clippy]
 module_name_repetitions = { level = "allow", priority = 1 }

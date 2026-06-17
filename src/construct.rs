@@ -1,10 +1,12 @@
+//! Map construction.
+
+use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
+use crate::map::{CowSlice, Map};
 use alloc::{vec, vec::Vec};
 use core::cmp::Reverse;
-use core::hash::{Hash, Hasher};
-use foldhash::SharedSeed;
-use foldhash::fast::FoldHasher;
-use rand::distr::StandardUniform;
-use rand::{RngExt, SeedableRng};
+use core::hash::Hash;
+use hashbrown::HashSet;
+use rand_core::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
 const FIXED_SEED: u64 = 310_514_310_514_310_514;
@@ -12,27 +14,25 @@ const FIXED_SEED: u64 = 310_514_310_514_310_514;
 /// Average number of keys per bucket in the CHD strategy.
 const LAMBDA: usize = 5;
 
-/// `floor(2^64 / phi)`. Used in bucket hashing because its multiples evenly distribute keys across buckets,
-/// keeping minimal-load construction fast. See also: splitmix64 and Fibonacci hashing.
-const BUCKET_MUL: u64 = 11_400_714_819_323_198_485;
-
-/// Maps with at most this many entries use linear scanning for lookups; no hashing or auxiliary data involved.
-pub(crate) const SCAN_MAX: usize = 1;
-
-/// Maps with at most this many entries try the displacement-free "direct" strategy:
-/// a single seed under which the keys are already perfect. The search costs ~`e^n / sqrt(n)` seed attempts
+/// Maps with at most this many entries try the displacement-free "direct" strategy: a single seed
+/// under which the keys are already perfect. The search costs roughly `e^n / sqrt(n)` seed attempts
 /// (each hashing every key), so this strategy is only faster than CHD at sufficiently small sizes.
 pub(crate) const DIRECT_MAX: usize = 10;
 
-/// Number of seeds tried for the direct strategy before falling back to CHD.
-const DIRECT_BUDGET: usize = 1 << 20;
-
 const _: () = assert!(SCAN_MAX < DIRECT_MAX);
 
-pub(crate) struct MapState {
-    pub(crate) seed: u64,
-    pub(crate) displacements: Vec<(u16, u16)>,
-    pub(crate) indices: Vec<usize>,
+/// Number of seeds tried for the direct strategy before falling back to CHD.
+const DIRECT_BUDGET: usize = 1 << 16;
+
+/// Number of seeds tried for the CHD strategy before giving up. Valid key sets should be hashed perfectly
+/// within the first few seeds, so exhausting this budget probably means no perfect hash exists.
+/// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
+const CHD_BUDGET: usize = 1 << 8;
+
+struct MapState {
+    seed: u64,
+    displacements: Vec<(u16, u16)>,
+    indices: Vec<usize>,
 }
 
 /// The CHD displacement table plus the permutation mapping each slot to the original entry index.
@@ -72,7 +72,7 @@ impl SlotSet {
 }
 
 #[inline]
-pub(crate) fn generate<T>(entries: &[T]) -> MapState
+fn generate<T>(entries: &[T]) -> MapState
 where
     T: Hash,
 {
@@ -99,18 +99,17 @@ fn generate_direct<T>(entries: &[T], n: usize) -> Option<MapState>
 where
     T: Hash,
 {
-    let mut seen = SlotSet::new(n);
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
+    let mut taken = SlotSet::new(n);
     let mut slot_to_orig = vec![0usize; n];
 
-    'seeds: for seed in Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED)
-        .sample_iter(StandardUniform)
-        .take(DIRECT_BUDGET)
-    {
-        seen.bump();
+    'seeds: for _ in 0..DIRECT_BUDGET {
+        let seed = rng.next_u64();
+        taken.bump();
 
         for (i, entry) in entries.iter().enumerate() {
             let slot = fastrange(hash(entry, seed), n);
-            if !seen.insert(slot) {
+            if !taken.insert(slot) {
                 continue 'seeds;
             }
             slot_to_orig[slot] = i;
@@ -133,8 +132,10 @@ where
     T: Hash,
 {
     let mut hashes: Vec<u64> = Vec::with_capacity(n);
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
 
-    for seed in Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED).sample_iter(StandardUniform) {
+    for _ in 0..CHD_BUDGET {
+        let seed = rng.next_u64();
         hashes.clear();
         hashes.extend(entries.iter().map(|entry| hash(entry, seed)));
 
@@ -147,7 +148,10 @@ where
         }
     }
 
-    unreachable!("the seed iterator is infinite")
+    panic!(
+        "could not find a perfect hash function for the given keys after {CHD_BUDGET} attempts; \
+         two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
+    );
 }
 
 #[inline]
@@ -195,13 +199,30 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
 
     let bound = table_len as u16;
     let splits: Vec<(u16, u16)> = hashes.iter().map(|&h| split(h)).collect();
-    let mut values_to_add = Vec::with_capacity(2 * LAMBDA);
+    // `values_to_add` only ever holds one bucket's keys at a time.
+    // The largest bucket is processed first, so sizing to it avoids reallocating during the search.
+    let max_bucket = order.first().map_or(0, |&b| {
+        usize::from(starts[b as usize + 1] - starts[b as usize])
+    });
+    let mut values_to_add = Vec::with_capacity(max_bucket);
     let mut taken = SlotSet::new(table_len);
     let mut map = vec![EMPTY; table_len];
     let mut displacements = vec![(0u16, 0u16); num_buckets];
 
     'buckets: for &b in &order {
         let keys = &bucket_keys[starts[b as usize] as usize..starts[b as usize + 1] as usize];
+
+        // Two keys in this bucket with the same split will map to the same slot under every displacement,
+        // so the bucket can never be placed. We immediately bail to a reseed
+        // instead of trying all `bound * bound` displacements in vain.
+        for (i, &k1) in keys.iter().enumerate() {
+            for &k2 in &keys[i + 1..] {
+                if splits[k1 as usize] == splits[k2 as usize] {
+                    return None;
+                }
+            }
+        }
+
         for d1 in 0..bound {
             'disps: for d2 in 0..bound {
                 values_to_add.clear();
@@ -233,48 +254,85 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
 }
 
 #[inline]
-pub(crate) fn hash<T>(x: T, seed: u64) -> u64
+fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
+    let mut set = HashSet::with_capacity(items.len());
+    !items.iter().all(|item| set.insert(item))
+}
+
+#[inline]
+fn sort_by_indices<T>(data: &mut [T], mut indices: Vec<usize>) {
+    for idx in 0..data.len() {
+        if indices[idx] != idx {
+            let mut current_idx = idx;
+            loop {
+                let target_idx = indices[current_idx];
+                indices[current_idx] = current_idx;
+                if indices[target_idx] == target_idx {
+                    break;
+                }
+                data.swap(current_idx, target_idx);
+                current_idx = target_idx;
+            }
+        }
+    }
+}
+
+impl<K, V> Map<K, V> {
+    /// Constructs a `Map` from a vector of key-value entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[must_use]
+    #[inline]
+    pub fn from_vec(entries: Vec<(K, V)>) -> Self
+    where
+        K: Eq + Hash,
+    {
+        assert!(
+            entries.len() <= u16::MAX.into(),
+            "cannot have more than 65535 entries"
+        );
+
+        let keys: Vec<_> = entries.iter().map(|entry| &entry.0).collect();
+
+        assert!(!has_duplicates(&keys), "duplicate key present");
+
+        let state = generate(&keys);
+
+        let mut entries = entries;
+        sort_by_indices(&mut entries, state.indices);
+
+        Self {
+            seed: state.seed,
+            displacements: CowSlice::Owned(state.displacements),
+            entries: CowSlice::Owned(entries),
+        }
+    }
+}
+
+impl<K, V, const N: usize> From<[(K, V); N]> for Map<K, V>
 where
-    T: Hash,
+    K: Eq + Hash,
 {
-    let mut hasher = FoldHasher::with_seed(seed, SharedSeed::global_fixed());
-    x.hash(&mut hasher);
-    hasher.finish()
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[inline]
+    fn from(entries: [(K, V); N]) -> Self {
+        Self::from_vec(Vec::from(entries))
+    }
 }
 
-/// Produces the two displacement values from a 64-bit hash using its low 32 bits, which `foldhash` mixes best.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "deliberately narrowing to u16"
-)]
-#[inline]
-pub(crate) fn split(hash: u64) -> (u16, u16) {
-    ((hash >> 16) as u16, hash as u16)
-}
-
-/// Reduces a 64-bit hash into `[0, len)` without division using its low 32 bits, which `foldhash` mixes best.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "deliberately taking the low 32 hash bits; result is < len so it fits usize"
-)]
-#[inline]
-pub(crate) fn fastrange(hash: u64, len: usize) -> usize {
-    ((u64::from(hash as u32) * len as u64) >> 32) as usize
-}
-
-/// The CHD bucket index for a hash.
-///
-/// [`split`] consumes the low 32 hash bits, so the bucket must draw on a different region.
-/// Otherwise, two keys colliding in the low 32 bits would share both a bucket and their displacement inputs,
-/// becoming impossible to separate and forcing a reseed. Taking the high 32 bits of `hash * BUCKET_MUL`
-/// keeps the bucket disjoint from `split` while still mixing in the whole hash,
-/// since the multiplication propagates the well-distributed low bits upward.
-#[inline]
-pub(crate) fn bucket(hash: u64, num_buckets: usize) -> usize {
-    fastrange(hash.wrapping_mul(BUCKET_MUL) >> 32, num_buckets)
-}
-
-#[inline]
-pub(crate) fn displace(f1: u16, f2: u16, d1: u16, d2: u16) -> u16 {
-    f1.wrapping_mul(d1).wrapping_add(f2).wrapping_add(d2)
+impl<K, V> FromIterator<(K, V)> for Map<K, V>
+where
+    K: Eq + Hash,
+{
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        Self::from_vec(iter.into_iter().collect())
+    }
 }
