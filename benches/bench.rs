@@ -69,7 +69,7 @@ impl Workload for LongStr {
 }
 
 fn build<T: Workload>(n: usize) -> Map<T::Key, usize> {
-    Map::from_vec(T::present(n).into_iter().zip(0usize..).collect())
+    T::present(n).into_iter().zip(0usize..).collect()
 }
 
 /// An opaque single lookup.
@@ -84,10 +84,10 @@ where
 
 #[divan::bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
 fn construct<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
-    let entries: Vec<(T::Key, usize)> = T::present(n).into_iter().zip(0usize..).collect();
+    let entries: Vec<_> = T::present(n).into_iter().zip(0usize..).collect();
     bencher
         .with_inputs(|| entries.clone())
-        .bench_values(Map::from_vec);
+        .bench_values(|entries| entries.into_iter().collect::<Map<_, _>>());
 }
 
 /// Repeated "hit" lookups for measuring amortized throughput.

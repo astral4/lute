@@ -286,7 +286,7 @@ impl<K, V> Map<K, V> {
     /// Panics if there are more than 65535 entries or if any keys are duplicated.
     #[must_use]
     #[inline]
-    pub fn from_vec(entries: Vec<(K, V)>) -> Self
+    fn from_vec(entries: Vec<(K, V)>) -> Self
     where
         K: Eq + Hash,
     {
@@ -346,7 +346,7 @@ impl<T> Set<T> {
     /// Panics if there are more than 65535 entries or if any keys are duplicated.
     #[must_use]
     #[inline]
-    pub fn from_vec(values: Vec<T>) -> Self
+    fn from_vec(values: Vec<T>) -> Self
     where
         T: Eq + Hash,
     {

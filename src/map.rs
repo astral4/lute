@@ -64,7 +64,7 @@ impl<T> Default for CowSlice<T> {
 
 /// An immutable map.
 ///
-/// Construct one with [`Map::from_vec`], [`From`], or [`FromIterator`].
+/// Construct one with [`From`] or [`FromIterator`].
 #[derive(Clone)]
 pub struct Map<K: 'static, V: 'static> {
     #[doc(hidden)]
@@ -329,7 +329,7 @@ mod test {
 
     #[test]
     fn empty() {
-        let map = Map::<Key, ()>::from_vec(vec![]);
+        let map = Map::<Key, ()>::from([]);
 
         assert_eq!(map, Map::<Key, ()>::default());
 
@@ -345,7 +345,7 @@ mod test {
 
     #[test]
     fn single() {
-        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+        let map = Map::from([(Key::MAX, "foo")]);
 
         assert_eq!(map.len(), 1);
         assert!(!map.is_empty());
@@ -367,7 +367,7 @@ mod test {
         let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
         let keys: HashSet<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
 
-        let map = Map::from_vec(entries);
+        let map: Map<_, _> = entries.into_iter().collect();
 
         assert_eq!(map.len(), 3);
         assert!(!map.is_empty());
@@ -455,7 +455,7 @@ mod test {
             let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
             let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
 
-            let map = Map::from_vec(entries.clone());
+            let map: Map<_, _> = entries.clone().into_iter().collect();
 
             let count = usize::try_from(n).unwrap();
             if count <= SCAN_MAX {
@@ -501,13 +501,13 @@ mod test {
     #[test]
     #[should_panic = "duplicate key present"]
     fn panic_duplicate_key() {
-        drop(Map::from_vec(vec![(Key::MAX, "foo"), (Key::MAX, "bar")]));
+        drop(Map::from([(Key::MAX, "foo"), (Key::MAX, "bar")]));
     }
 
     #[test]
     #[should_panic = "no entry found for key"]
     fn panic_index() {
-        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+        let map = Map::from([(Key::MAX, "foo")]);
         let _ = map[&0];
     }
 
@@ -523,10 +523,7 @@ mod test {
             }
         }
 
-        drop(Map::from_vec(vec![
-            (Collide(1, 1), "a"),
-            (Collide(1, 2), "b"),
-        ]));
+        drop(Map::from([(Collide(1, 1), "a"), (Collide(1, 2), "b")]));
     }
 }
 

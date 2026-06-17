@@ -6,7 +6,7 @@ use core::iter::FusedIterator;
 
 /// An immutable set.
 ///
-/// Construct one with [`Set::from_vec`], [`From`], or [`FromIterator`].
+/// Construct one with [`From`] or [`FromIterator`].
 #[derive(Clone)]
 pub struct Set<T: 'static> {
     #[doc(hidden)]
@@ -132,7 +132,7 @@ mod test {
 
     #[test]
     fn empty() {
-        let set = Set::<Value>::from_vec(vec![]);
+        let set = Set::<Value>::from([]);
 
         assert_eq!(set, Set::<Value>::default());
 
@@ -147,7 +147,7 @@ mod test {
 
     #[test]
     fn single() {
-        let set = Set::from_vec(vec![Value::MAX]);
+        let set = Set::from([Value::MAX]);
 
         assert_eq!(set.len(), 1);
         assert!(!set.is_empty());
@@ -166,7 +166,7 @@ mod test {
         let values: Vec<Value> = vec![1, 3, 9];
         let present: HashSet<_> = values.iter().copied().collect();
 
-        let set = Set::from_vec(values);
+        let set: Set<_> = values.into_iter().collect();
 
         assert_eq!(set.len(), 3);
         assert!(!set.is_empty());
@@ -222,7 +222,7 @@ mod test {
     #[test]
     #[should_panic = "duplicate key present"]
     fn panic_duplicate_value() {
-        drop(Set::from_vec(vec![Value::MAX, Value::MAX]));
+        drop(Set::from([Value::MAX, Value::MAX]));
     }
 }
 
