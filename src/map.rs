@@ -138,14 +138,7 @@ impl<K, V> Map<K, V> {
 #[inline]
 fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
     let mut set = HashSet::with_capacity(items.len());
-
-    for item in items {
-        if !set.insert(item) {
-            return true;
-        }
-    }
-
-    false
+    !items.iter().all(|item| set.insert(item))
 }
 
 #[inline]
