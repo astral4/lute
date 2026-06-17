@@ -316,3 +316,247 @@ impl<'a, K, V> IntoIterator for &'a Map<K, V> {
         self.entries()
     }
 }
+
+#[cfg(all(test, feature = "construct"))]
+mod test {
+    use super::Map;
+    use crate::construct::DIRECT_MAX;
+    use crate::kernel::SCAN_MAX;
+    use core::hash::{Hash, Hasher};
+    use std::collections::HashSet;
+
+    type Key = u8;
+
+    #[test]
+    fn empty() {
+        let map = Map::<Key, ()>::from_vec(vec![]);
+
+        assert_eq!(map, Map::<Key, ()>::default());
+
+        assert_eq!(map.len(), 0);
+        assert!(map.is_empty());
+
+        for key in Key::MIN..=Key::MAX {
+            assert!(map.get_entry(&key).is_none());
+            assert!(map.get(&key).is_none());
+            assert!(!map.contains_key(&key));
+        }
+    }
+
+    #[test]
+    fn single() {
+        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+
+        assert_eq!(map.len(), 1);
+        assert!(!map.is_empty());
+
+        for key in Key::MIN..Key::MAX {
+            assert!(map.get_entry(&key).is_none());
+            assert!(map.get(&key).is_none());
+            assert!(!map.contains_key(&key));
+        }
+
+        assert_eq!(map.get_entry(&Key::MAX), Some((&Key::MAX, &"foo")));
+        assert_eq!(map.get(&Key::MAX), Some(&"foo"));
+        assert_eq!(map[&Key::MAX], "foo");
+        assert!(map.contains_key(&Key::MAX));
+    }
+
+    #[test]
+    fn multiple() {
+        let entries = vec![(1, "foo"), (3, "bar"), (9, "baz")];
+        let keys: HashSet<_> = entries.clone().into_iter().map(|(k, _)| k).collect();
+
+        let map = Map::from_vec(entries);
+
+        assert_eq!(map.len(), 3);
+        assert!(!map.is_empty());
+
+        for key in Key::MIN..=Key::MAX {
+            if !keys.contains(&key) {
+                assert!(map.get_entry(&key).is_none());
+                assert!(map.get(&key).is_none());
+                assert!(!map.contains_key(&key));
+            }
+        }
+
+        assert_eq!(map.get_entry(&1), Some((&1, &"foo")));
+        assert_eq!(map.get(&1), Some(&"foo"));
+        assert_eq!(map[&1], "foo");
+        assert!(map.contains_key(&1));
+
+        assert_eq!(map.get_entry(&3), Some((&3, &"bar")));
+        assert_eq!(map.get(&3), Some(&"bar"));
+        assert_eq!(map[&3], "bar");
+        assert!(map.contains_key(&3));
+
+        assert_eq!(map.get_entry(&9), Some((&9, &"baz")));
+        assert_eq!(map.get(&9), Some(&"baz"));
+        assert_eq!(map[&9], "baz");
+        assert!(map.contains_key(&9));
+    }
+
+    #[test]
+    fn map_iterators() {
+        let map = Map::from([(1u8, "a"), (2, "b"), (3, "c")]);
+
+        assert_eq!(map.entries().len(), 3);
+
+        let mut keys: Vec<_> = map.keys().copied().collect();
+        keys.sort_unstable();
+        assert_eq!(keys, [1, 2, 3]);
+
+        let mut values: Vec<_> = map.values().copied().collect();
+        values.sort_unstable();
+        assert_eq!(values, ["a", "b", "c"]);
+
+        let mut entries: Vec<_> = map.entries().map(|(&k, &v)| (k, v)).collect();
+        entries.sort_unstable();
+        assert_eq!(entries, [(1, "a"), (2, "b"), (3, "c")]);
+
+        let mut by_ref: Vec<_> = (&map).into_iter().map(|(&k, &v)| (k, v)).collect();
+        by_ref.sort_unstable();
+        assert_eq!(by_ref, entries);
+    }
+
+    #[test]
+    fn equality() {
+        let a = Map::from([(1u8, "x"), (2, "y")]);
+        let b = Map::from([(2u8, "y"), (1, "x")]);
+        let differs_value = Map::from([(1u8, "x"), (2, "z")]);
+        let differs_key = Map::from([(1u8, "x"), (9, "y")]);
+
+        assert_eq!(a, b);
+        assert_ne!(a, differs_value);
+        assert_ne!(a, differs_key);
+    }
+
+    #[test]
+    fn borrow_str_lookup() {
+        let map: Map<_, _> = [("alpha", 1), ("beta", 2)]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect();
+
+        assert_eq!(map.get("alpha"), Some(&1));
+        assert_eq!(map["alpha"], 1);
+        assert_eq!(map.get("beta"), Some(&2));
+        assert_eq!(map["beta"], 2);
+        assert_eq!(map.get("gamma"), None);
+    }
+
+    #[test]
+    fn strategies_across_sizes() {
+        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
+        let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
+
+        for n in sizes {
+            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
+            let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
+            let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
+
+            let map = Map::from_vec(entries.clone());
+
+            let count = usize::try_from(n).unwrap();
+            if count <= SCAN_MAX {
+                assert!(
+                    map.displacements.is_empty(),
+                    "scan n={n} should have no displacements"
+                );
+                saw_scan = true;
+            } else if map.displacements.is_empty() {
+                saw_direct = true;
+            } else {
+                saw_chd = true;
+            }
+            if count > DIRECT_MAX {
+                assert!(
+                    !map.displacements.is_empty(),
+                    "n={n} above DIRECT_MAX should use CHD"
+                );
+            }
+
+            for &(k, v) in &entries {
+                assert_eq!(map.get(&k), Some(&v), "present n={n} key={k}");
+                assert_eq!(map.get_entry(&k), Some((&k, &v)), "present n={n} key={k}");
+            }
+
+            let mut checked = 0;
+            for k in 0u32.. {
+                if checked >= 500 {
+                    break;
+                }
+                if !present.contains(&k) {
+                    assert!(map.get(&k).is_none(), "absent n={n} key={k}");
+                    checked += 1;
+                }
+            }
+        }
+
+        assert!(saw_scan, "scan strategy never used");
+        assert!(saw_direct, "direct strategy never used");
+        assert!(saw_chd, "CHD strategy never used");
+    }
+
+    #[test]
+    #[should_panic = "duplicate key present"]
+    fn panic_duplicate_key() {
+        drop(Map::from_vec(vec![(Key::MAX, "foo"), (Key::MAX, "bar")]));
+    }
+
+    #[test]
+    #[should_panic = "no entry found for key"]
+    fn panic_index() {
+        let map = Map::from_vec(vec![(Key::MAX, "foo")]);
+        let _ = map[&0];
+    }
+
+    #[test]
+    #[should_panic = "could not find a perfect hash function"]
+    fn panic_inconsistent_hash_eq() {
+        #[derive(PartialEq, Eq)]
+        struct Collide(u32, u32);
+
+        impl Hash for Collide {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.0.hash(state);
+            }
+        }
+
+        drop(Map::from_vec(vec![
+            (Collide(1, 1), "a"),
+            (Collide(1, 2), "b"),
+        ]));
+    }
+}
+
+#[cfg(all(test, feature = "codegen"))]
+mod test_codegen {
+    use super::Map;
+
+    #[test]
+    fn to_tokens() {
+        let build = || Map::from([("foo", 1u32), ("bar", 2), ("baz", 3)]);
+        let rendered = build().to_tokens().to_string();
+
+        for needle in [
+            "Map",
+            "CowSlice",
+            "Borrowed",
+            "seed",
+            "displacements",
+            "entries",
+            "\"foo\"",
+            "\"bar\"",
+            "\"baz\"",
+        ] {
+            assert!(
+                rendered.contains(needle),
+                "missing {needle:?} in {rendered}"
+            );
+        }
+
+        // Check determinism
+        assert_eq!(rendered, build().to_tokens().to_string());
+    }
+}

@@ -122,3 +122,127 @@ impl<'a, T> IntoIterator for &'a Set<T> {
         self.entries()
     }
 }
+
+#[cfg(all(test, feature = "construct"))]
+mod test {
+    use super::Set;
+    use std::collections::HashSet;
+
+    type Value = u8;
+
+    #[test]
+    fn empty() {
+        let set = Set::<Value>::from_vec(vec![]);
+
+        assert_eq!(set, Set::<Value>::default());
+
+        assert_eq!(set.len(), 0);
+        assert!(set.is_empty());
+
+        for value in Value::MIN..=Value::MAX {
+            assert!(set.get(&value).is_none());
+            assert!(!set.contains(&value));
+        }
+    }
+
+    #[test]
+    fn single() {
+        let set = Set::from_vec(vec![Value::MAX]);
+
+        assert_eq!(set.len(), 1);
+        assert!(!set.is_empty());
+
+        for value in Value::MIN..Value::MAX {
+            assert!(set.get(&value).is_none());
+            assert!(!set.contains(&value));
+        }
+
+        assert_eq!(set.get(&Value::MAX), Some(&Value::MAX));
+        assert!(set.contains(&Value::MAX));
+    }
+
+    #[test]
+    fn multiple() {
+        let values: Vec<Value> = vec![1, 3, 9];
+        let present: HashSet<_> = values.iter().copied().collect();
+
+        let set = Set::from_vec(values);
+
+        assert_eq!(set.len(), 3);
+        assert!(!set.is_empty());
+
+        for value in Value::MIN..=Value::MAX {
+            if present.contains(&value) {
+                assert_eq!(set.get(&value), Some(&value));
+                assert!(set.contains(&value));
+            } else {
+                assert!(set.get(&value).is_none());
+                assert!(!set.contains(&value));
+            }
+        }
+    }
+
+    #[test]
+    fn set_iterators() {
+        let set = Set::from([1u8, 2, 3]);
+
+        assert_eq!(set.entries().len(), 3);
+
+        let mut values: Vec<_> = set.entries().copied().collect();
+        values.sort_unstable();
+        assert_eq!(values, [1, 2, 3]);
+
+        let mut by_ref: Vec<_> = (&set).into_iter().copied().collect();
+        by_ref.sort_unstable();
+        assert_eq!(by_ref, values);
+    }
+
+    #[test]
+    fn equality() {
+        let a = Set::from([1u8, 2, 3]);
+        let b = Set::from([3u8, 2, 1]);
+        let differs = Set::from([1u8, 2, 4]);
+
+        assert_eq!(a, b);
+        assert_ne!(a, differs);
+    }
+
+    #[test]
+    fn borrow_str_lookup() {
+        let set: Set<_> = ["alpha", "beta"].into_iter().map(str::to_owned).collect();
+
+        assert!(set.contains("alpha"));
+        assert_eq!(set.get("alpha").map(String::as_str), Some("alpha"));
+        assert!(set.contains("beta"));
+        assert_eq!(set.get("beta").map(String::as_str), Some("beta"));
+        assert!(!set.contains("gamma"));
+        assert_eq!(set.get("gamma"), None);
+    }
+
+    #[test]
+    #[should_panic = "duplicate key present"]
+    fn panic_duplicate_value() {
+        drop(Set::from_vec(vec![Value::MAX, Value::MAX]));
+    }
+}
+
+#[cfg(all(test, feature = "codegen"))]
+mod test_codegen {
+    use super::Set;
+
+    #[test]
+    fn to_tokens() {
+        let build = || Set::from([1u32, 2, 3]);
+        let rendered = build().to_tokens().to_string();
+
+        for needle in ["Set", "map", "Map", "CowSlice", "Borrowed"] {
+            assert!(
+                rendered.contains(needle),
+                "missing {needle:?} in {rendered}"
+            );
+        }
+
+        // Check determinism
+        assert_eq!(rendered, build().to_tokens().to_string());
+    }
+}
