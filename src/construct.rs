@@ -6,6 +6,8 @@ use crate::set::Set;
 use alloc::{vec, vec::Vec};
 use core::cmp::Reverse;
 use core::hash::Hash;
+use core::mem::replace;
+use core::ptr::{read, write};
 use hashbrown::HashSet;
 use rand_core::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -260,22 +262,47 @@ fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
     !items.iter().all(|item| set.insert(item))
 }
 
+/// Permutes `data` such that `data[indices[i]]` is moved to `data[i]`.
+/// Clobbers `indices` as scratch space.
+///
+/// # Safety
+///
+/// `indices` must be a permutation of `0..data.len()`.
 #[inline]
-fn sort_by_indices<T>(data: &mut [T], mut indices: Vec<usize>) {
-    for idx in 0..data.len() {
-        if indices[idx] != idx {
-            let mut current_idx = idx;
+unsafe fn apply_permutation<T>(data: &mut [T], indices: &mut [usize]) {
+    debug_assert_eq!(data.len(), indices.len());
+    debug_assert!(is_permutation(indices));
+
+    for start in 0..data.len() {
+        unsafe {
+            if *indices.get_unchecked(start) == start {
+                continue;
+            }
+
+            let tmp = read(data.get_unchecked(start));
+            let mut i = start;
             loop {
-                let target_idx = indices[current_idx];
-                indices[current_idx] = current_idx;
-                if indices[target_idx] == target_idx {
+                let src = *indices.get_unchecked(i);
+                *indices.get_unchecked_mut(i) = i;
+                if src == start {
+                    write(data.get_unchecked_mut(i), tmp);
                     break;
                 }
-                data.swap(current_idx, target_idx);
-                current_idx = target_idx;
+                let moved = read(data.get_unchecked(src));
+                write(data.get_unchecked_mut(i), moved);
+                i = src;
             }
         }
     }
+}
+
+fn is_permutation(indices: &[usize]) -> bool {
+    let n = indices.len();
+    let mut seen = vec![false; n];
+
+    indices
+        .iter()
+        .all(|&i| i < n && !replace(&mut seen[i], true))
 }
 
 impl<K, V> Map<K, V> {
@@ -299,10 +326,12 @@ impl<K, V> Map<K, V> {
 
         assert!(!has_duplicates(&keys), "duplicate key present");
 
-        let state = generate(&keys);
+        let mut state = generate(&keys);
 
         let mut entries = entries;
-        sort_by_indices(&mut entries, state.indices);
+        unsafe {
+            apply_permutation(&mut entries, &mut state.indices);
+        }
 
         Self {
             seed: state.seed,
@@ -385,9 +414,21 @@ where
 #[cfg(test)]
 mod test {
     use super::DIRECT_MAX;
+    use super::apply_permutation;
     use crate::kernel::SCAN_MAX;
     use crate::map::Map;
     use std::collections::HashSet;
+
+    #[test]
+    fn apply_permutation_gather() {
+        let mut data = ["a", "b", "c", "d", "e", "f"].map(String::from).to_vec();
+        let mut indices = vec![2, 0, 1, 3, 5, 4];
+
+        // SAFETY: `indices` is a permutation of `0..data.len()`.
+        unsafe { apply_permutation(&mut data, &mut indices) };
+
+        assert_eq!(data, ["c", "a", "b", "d", "f", "e"]);
+    }
 
     #[test]
     fn strategies_across_sizes() {
