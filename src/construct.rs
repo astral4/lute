@@ -1,7 +1,8 @@
-//! Map construction.
+//! Map and set construction.
 
 use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
 use crate::map::{CowSlice, Map};
+use crate::set::Set;
 use alloc::{vec, vec::Vec};
 use core::cmp::Reverse;
 use core::hash::Hash;
@@ -333,6 +334,50 @@ where
     /// Panics if there are more than 65535 entries or if any keys are duplicated.
     #[inline]
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        Self::from_vec(iter.into_iter().collect())
+    }
+}
+
+impl<T> Set<T> {
+    /// Constructs a `Set` from a vector of values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[must_use]
+    #[inline]
+    pub fn from_vec(values: Vec<T>) -> Self
+    where
+        T: Eq + Hash,
+    {
+        Self {
+            map: Map::from_vec(values.into_iter().map(|v| (v, ())).collect()),
+        }
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for Set<T>
+where
+    T: Eq + Hash,
+{
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[inline]
+    fn from(values: [T; N]) -> Self {
+        Self::from_vec(Vec::from(values))
+    }
+}
+
+impl<T> FromIterator<T> for Set<T>
+where
+    T: Eq + Hash,
+{
+    /// # Panics
+    ///
+    /// Panics if there are more than 65535 entries or if any keys are duplicated.
+    #[inline]
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from_vec(iter.into_iter().collect())
     }
 }

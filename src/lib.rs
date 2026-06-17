@@ -18,6 +18,14 @@
 //! assert_eq!(planets.get("Pluto"), None);
 //! ```
 //!
+//! ```
+//! use haph::Set;
+//!
+//! let primes = Set::from([2, 3, 5, 7, 11]);
+//! assert!(primes.contains(&7));
+//! assert!(!primes.contains(&8));
+//! ```
+//!
 //! ## Compile-time generation
 //!
 //! When the entries are known ahead of time, it is often best to build a map or set once at compile time and directly embed it.
@@ -80,6 +88,7 @@ extern crate std;
 
 mod kernel;
 mod map;
+mod set;
 
 #[cfg(feature = "construct")]
 mod construct;
@@ -88,3 +97,4 @@ mod construct;
 mod bake;
 
 pub use map::{CowSlice, Entries as MapEntries, Keys, Map, Values};
+pub use set::{Entries as SetEntries, Set};

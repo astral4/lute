@@ -2,6 +2,7 @@
 //! Requires `std` for crate name resolution.
 
 use crate::map::{CowSlice, Map};
+use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
 use std::sync::OnceLock;
@@ -60,6 +61,26 @@ where
     V: Bake,
 {
     /// Serializes the `Map` into a token stream of literal Rust code that reconstructs it.
+    /// Used for embedding in generated code.
+    #[must_use]
+    pub fn to_tokens(&self) -> TokenStream {
+        self.bake(&CrateEnv::default())
+    }
+}
+
+impl<T: Bake> Bake for Set<T> {
+    fn bake(&self, ctx: &CrateEnv) -> TokenStream {
+        let krate = crate_path(ctx);
+        let map_tokens = self.map.bake(ctx);
+
+        quote! {
+            ::#krate::Set { map: #map_tokens }
+        }
+    }
+}
+
+impl<T: Bake> Set<T> {
+    /// Serializes the `Set` into a token stream of literal Rust code that reconstructs it.
     /// Used for embedding in generated code.
     #[must_use]
     pub fn to_tokens(&self) -> TokenStream {
