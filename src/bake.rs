@@ -5,19 +5,17 @@ use crate::map::Map;
 use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
-use std::sync::OnceLock;
 
-/// Registers `haph` with the bake environment under the name the consuming crate imports it as,
-/// and returns that name as tokens for emitting paths in generated code.
+/// Returns the path tokens for the `haph` crate and registers it with the bake environment.
+///
+/// Generated code defaults to `::haph`. When Cargo can resolve how the consuming crate imports `haph`, that name is used instead.
 fn crate_path(ctx: &CrateEnv) -> TokenStream {
-    static NAME: OnceLock<&'static str> = OnceLock::new();
-
-    let name = *NAME.get_or_init(|| {
-        match crate_name("haph").expect("crate should be included as dependency") {
-            FoundCrate::Itself => "haph",
-            FoundCrate::Name(name) => name.leak(),
-        }
-    });
+    // `proc-macro-crate` caches resolution per-manifest with timestamp invalidation,
+    // so calling it on every bake is cheap. The common case and fallback use the `'static` literal.
+    let name: &'static str = match crate_name("haph") {
+        Ok(FoundCrate::Name(name)) if name != "haph" => name.leak(),
+        _ => "haph",
+    };
 
     ctx.insert(name);
     name.parse().unwrap()
