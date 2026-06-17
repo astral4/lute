@@ -1,7 +1,7 @@
 //! Codegen support for serializing constructed maps and sets into Rust code.
 //! Requires `std` for crate name resolution.
 
-use crate::map::{CowSlice, Map};
+use crate::map::Map;
 use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
@@ -23,17 +23,6 @@ fn crate_path(ctx: &CrateEnv) -> TokenStream {
     name.parse().unwrap()
 }
 
-impl<T: Bake> Bake for CowSlice<T> {
-    fn bake(&self, ctx: &CrateEnv) -> TokenStream {
-        let krate = crate_path(ctx);
-        let tokens = self.iter().map(|d| d.bake(ctx));
-
-        quote! {
-            ::#krate::CowSlice::Borrowed(&[#(#tokens),*])
-        }
-    }
-}
-
 impl<K, V> Bake for Map<K, V>
 where
     K: Bake,
@@ -41,16 +30,16 @@ where
 {
     fn bake(&self, ctx: &CrateEnv) -> TokenStream {
         let krate = crate_path(ctx);
-        let seed_tokens = self.seed.bake(ctx);
-        let displacements_tokens = self.displacements.bake(ctx);
-        let entries_tokens = self.entries.bake(ctx);
+        let seed = self.seed.bake(ctx);
+        let displacements = self.displacements.iter().map(|d| d.bake(ctx));
+        let entries = self.entries.iter().map(|e| e.bake(ctx));
 
         quote! {
-            ::#krate::Map {
-                seed: #seed_tokens,
-                displacements: #displacements_tokens,
-                entries: #entries_tokens
-            }
+            ::#krate::Map::from_baked_parts(
+                #seed,
+                &[#(#displacements),*],
+                &[#(#entries),*],
+            )
         }
     }
 }
@@ -71,10 +60,10 @@ where
 impl<T: Bake> Bake for Set<T> {
     fn bake(&self, ctx: &CrateEnv) -> TokenStream {
         let krate = crate_path(ctx);
-        let map_tokens = self.map.bake(ctx);
+        let map = self.map.bake(ctx);
 
         quote! {
-            ::#krate::Set { map: #map_tokens }
+            ::#krate::Set::from_baked_map(#map)
         }
     }
 }

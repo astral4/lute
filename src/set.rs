@@ -9,8 +9,7 @@ use core::iter::FusedIterator;
 /// Construct one with [`From`] or [`FromIterator`].
 #[derive(Clone)]
 pub struct Set<T: 'static> {
-    #[doc(hidden)]
-    pub map: Map<T, ()>,
+    pub(crate) map: Map<T, ()>,
 }
 
 impl<T: Debug> Debug for Set<T> {
@@ -29,6 +28,15 @@ impl<T> Default for Set<T> {
 }
 
 impl<T> Set<T> {
+    /// Reconstructs a `Set` from a baked [`Map`].
+    ///
+    /// This is an implementation detail used by generated code; it is intentionally hidden from the public API.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn from_baked_map(map: Map<T, ()>) -> Self {
+        Self { map }
+    }
+
     /// Returns the value in the set equal to the given value, if present.
     #[inline]
     pub fn get<Q>(&self, value: &Q) -> Option<&T>
@@ -235,7 +243,7 @@ mod test_codegen {
         let build = || Set::from([1u32, 2, 3]);
         let rendered = build().to_tokens().to_string();
 
-        for needle in ["Set", "map", "Map", "CowSlice", "Borrowed"] {
+        for needle in ["Set", "from_baked_map", "Map", "from_baked_parts"] {
             assert!(
                 rendered.contains(needle),
                 "missing {needle:?} in {rendered}"

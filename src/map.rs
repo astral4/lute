@@ -8,8 +8,7 @@ use core::iter::FusedIterator;
 use core::ops::{Deref, Index};
 use core::slice::Iter;
 
-#[doc(hidden)]
-pub enum CowSlice<T: 'static> {
+pub(crate) enum CowSlice<T: 'static> {
     Borrowed(&'static [T]),
     Owned(Vec<T>),
 }
@@ -67,12 +66,9 @@ impl<T> Default for CowSlice<T> {
 /// Construct one with [`From`] or [`FromIterator`].
 #[derive(Clone)]
 pub struct Map<K: 'static, V: 'static> {
-    #[doc(hidden)]
-    pub seed: u64,
-    #[doc(hidden)]
-    pub displacements: CowSlice<(u16, u16)>,
-    #[doc(hidden)]
-    pub entries: CowSlice<(K, V)>,
+    pub(crate) seed: u64,
+    pub(crate) displacements: CowSlice<(u16, u16)>,
+    pub(crate) entries: CowSlice<(K, V)>,
 }
 
 impl<K: Debug, V: Debug> Debug for Map<K, V> {
@@ -93,6 +89,24 @@ impl<K, V> Default for Map<K, V> {
 }
 
 impl<K, V> Map<K, V> {
+    /// Reconstructs a `Map` from its serialized parts.
+    ///
+    /// This is an implementation detail used by generated code; it is intentionally hidden from the public API.
+    /// The parts must come from an actual construction.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn from_baked_parts(
+        seed: u64,
+        displacements: &'static [(u16, u16)],
+        entries: &'static [(K, V)],
+    ) -> Self {
+        Self {
+            seed,
+            displacements: CowSlice::Borrowed(displacements),
+            entries: CowSlice::Borrowed(entries),
+        }
+    }
+
     /// Returns the key-value entry corresponding to the given key, if present.
     #[inline]
     pub fn get_entry<Q>(&self, key: &Q) -> Option<(&K, &V)>
@@ -481,17 +495,7 @@ mod test_codegen {
         let build = || Map::from([("foo", 1u32), ("bar", 2), ("baz", 3)]);
         let rendered = build().to_tokens().to_string();
 
-        for needle in [
-            "Map",
-            "CowSlice",
-            "Borrowed",
-            "seed",
-            "displacements",
-            "entries",
-            "\"foo\"",
-            "\"bar\"",
-            "\"baz\"",
-        ] {
+        for needle in ["Map", "from_baked_parts", "\"foo\"", "\"bar\"", "\"baz\""] {
             assert!(
                 rendered.contains(needle),
                 "missing {needle:?} in {rendered}"

@@ -96,5 +96,5 @@ mod construct;
 #[cfg(feature = "codegen")]
 mod bake;
 
-pub use map::{CowSlice, Entries as MapEntries, Keys, Map, Values};
+pub use map::{Entries as MapEntries, Keys, Map, Values};
 pub use set::{Entries as SetEntries, Set};
