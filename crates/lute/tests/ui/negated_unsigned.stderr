@@ -1,0 +1,5 @@
+error: cannot negate an unsigned integer key
+ --> tests/ui/negated_unsigned.rs:2:17
+  |
+2 |     lute::map!(-1u32 => "a");
+  |                 ^^^^

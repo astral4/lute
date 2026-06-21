@@ -1,0 +1,5 @@
+error: array repeat count cannot be negative
+ --> tests/ui/negative_repeat.rs:2:55
+  |
+2 |     let _: lute::Map<[u8; 0], i32> = lute::map!([0u8; -1] => 1);
+  |                                                       ^^

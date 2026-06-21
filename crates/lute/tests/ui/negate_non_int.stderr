@@ -1,0 +1,5 @@
+error: only integer keys can be negated
+ --> tests/ui/negate_non_int.rs:2:17
+  |
+2 |     lute::map!(-"x" => 1);
+  |                 ^^^

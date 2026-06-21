@@ -1,0 +1,5 @@
+error: range keys must have integer or character bounds
+ --> tests/ui/range_bounds.rs:2:16
+  |
+2 |     lute::map!("a".."z" => 1);
+  |                ^^^^^^^^

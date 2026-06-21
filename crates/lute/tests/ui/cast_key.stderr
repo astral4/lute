@@ -1,0 +1,5 @@
+error: cast expressions cannot be keys; write the literal with a type suffix instead, e.g. `1u32`
+ --> tests/ui/cast_key.rs:2:45
+  |
+2 |     let _: lute::Map<u32, i32> = lute::map!(1 as u32 => 1);
+  |                                             ^^^^^^^^

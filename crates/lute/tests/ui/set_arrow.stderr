@@ -1,0 +1,5 @@
+error: `set!` takes a list of values, not `key => value` pairs; use `map!` for those
+ --> tests/ui/set_arrow.rs:2:45
+  |
+2 |     let _: lute::Set<u32> = lute::set!(1u32 => 2);
+  |                                             ^

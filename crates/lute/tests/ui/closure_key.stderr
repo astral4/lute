@@ -1,0 +1,5 @@
+error: closures cannot be keys
+ --> tests/ui/closure_key.rs:2:16
+  |
+2 |     lute::set!(|x: u8| x);
+  |                ^^^^^^^^^

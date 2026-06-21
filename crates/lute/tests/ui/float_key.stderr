@@ -1,0 +1,5 @@
+error: floating-point values cannot be keys
+ --> tests/ui/float_key.rs:2:16
+  |
+2 |     lute::map!(1.0 => "a");
+  |                ^^^

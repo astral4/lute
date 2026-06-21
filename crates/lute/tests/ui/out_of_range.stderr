@@ -1,0 +1,5 @@
+error: integer key is out of range for its type
+ --> tests/ui/out_of_range.rs:2:16
+  |
+2 |     lute::map!(256u8 => "a");
+  |                ^^^^^

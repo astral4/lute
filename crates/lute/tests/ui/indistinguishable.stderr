@@ -1,0 +1,11 @@
+error: this key is indistinguishable from an earlier entry
+ --> tests/ui/indistinguishable.rs:2:59
+  |
+2 |     let _: lute::Map<&[u8], i32> = lute::map!(b"hi" => 1, &[104u8, 105u8] => 2);
+  |                                                           ^^^^^^^^^^^^^^^
+
+error: ...the earlier entry is here
+ --> tests/ui/indistinguishable.rs:2:47
+  |
+2 |     let _: lute::Map<&[u8], i32> = lute::map!(b"hi" => 1, &[104u8, 105u8] => 2);
+  |                                               ^^^^^

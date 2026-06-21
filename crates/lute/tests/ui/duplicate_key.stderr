@@ -1,0 +1,11 @@
+error: this key is indistinguishable from an earlier entry
+ --> tests/ui/duplicate_key.rs:2:29
+  |
+2 |     lute::map!(1u32 => "a", 1u32 => "b");
+  |                             ^^^^
+
+error: ...the earlier entry is here
+ --> tests/ui/duplicate_key.rs:2:16
+  |
+2 |     lute::map!(1u32 => "a", 1u32 => "b");
+  |                ^^^^

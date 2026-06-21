@@ -1,0 +1,5 @@
+error: integer keys must have a type suffix so their width is known, e.g. `1u32`
+ --> tests/ui/unsuffixed_int.rs:2:16
+  |
+2 |     lute::map!(1 => "a");
+  |                ^

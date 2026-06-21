@@ -1,0 +1,5 @@
+error: empty array/slice keys need their element type: write `[T; 0]` (e.g. `[0u8; 0]`)
+ --> tests/ui/empty_array.rs:2:49
+  |
+2 |     let _: lute::Map<&[u32], i32> = lute::map!(&[] => 1);
+  |                                                 ^^
