@@ -1,4 +1,4 @@
-use crate::Map;
+use crate::{Map, MapKeys};
 use core::borrow::Borrow;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::hash::Hash;
@@ -74,8 +74,8 @@ impl<T> Set<T> {
     /// Returns an iterator over the values of the set in an unspecified order.
     #[must_use]
     #[inline]
-    pub fn entries(&self) -> Entries<'_, T> {
-        Entries {
+    pub fn entries(&self) -> SetEntries<'_, T> {
+        SetEntries {
             inner: self.map.keys(),
         }
     }
@@ -96,11 +96,11 @@ impl<T> Eq for Set<T> where T: Eq + Hash {}
 ///
 /// Created by [`Set::entries`].
 #[derive(Clone, Debug)]
-pub struct Entries<'a, T> {
-    inner: crate::Keys<'a, T, ()>,
+pub struct SetEntries<'a, T> {
+    inner: MapKeys<'a, T, ()>,
 }
 
-impl<'a, T> Iterator for Entries<'a, T> {
+impl<'a, T> Iterator for SetEntries<'a, T> {
     type Item = &'a T;
 
     #[inline]
@@ -114,8 +114,8 @@ impl<'a, T> Iterator for Entries<'a, T> {
     }
 }
 
-impl<T> ExactSizeIterator for Entries<'_, T> {}
-impl<T> FusedIterator for Entries<'_, T> {}
+impl<T> ExactSizeIterator for SetEntries<'_, T> {}
+impl<T> FusedIterator for SetEntries<'_, T> {}
 
 #[expect(
     clippy::into_iter_without_iter,
@@ -123,7 +123,7 @@ impl<T> FusedIterator for Entries<'_, T> {}
 )]
 impl<'a, T> IntoIterator for &'a Set<T> {
     type Item = &'a T;
-    type IntoIter = Entries<'a, T>;
+    type IntoIter = SetEntries<'a, T>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {

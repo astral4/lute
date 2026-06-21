@@ -186,8 +186,8 @@ impl<K, V> Map<K, V> {
     /// Returns an iterator over the key-value pairs of the map in an unspecified order.
     #[must_use]
     #[inline]
-    pub fn entries(&self) -> Entries<'_, K, V> {
-        Entries {
+    pub fn entries(&self) -> MapEntries<'_, K, V> {
+        MapEntries {
             inner: self.entries.iter(),
         }
     }
@@ -195,8 +195,8 @@ impl<K, V> Map<K, V> {
     /// Returns an iterator over the keys of the map in an unspecified order.
     #[must_use]
     #[inline]
-    pub fn keys(&self) -> Keys<'_, K, V> {
-        Keys {
+    pub fn keys(&self) -> MapKeys<'_, K, V> {
+        MapKeys {
             inner: self.entries.iter(),
         }
     }
@@ -204,8 +204,8 @@ impl<K, V> Map<K, V> {
     /// Returns an iterator over the values of the map in an unspecified order.
     #[must_use]
     #[inline]
-    pub fn values(&self) -> Values<'_, K, V> {
-        Values {
+    pub fn values(&self) -> MapValues<'_, K, V> {
+        MapValues {
             inner: self.entries.iter(),
         }
     }
@@ -248,11 +248,11 @@ where
 ///
 /// Created by [`Map::entries`].
 #[derive(Clone, Debug)]
-pub struct Entries<'a, K, V> {
+pub struct MapEntries<'a, K, V> {
     inner: Iter<'a, (K, V)>,
 }
 
-impl<'a, K, V> Iterator for Entries<'a, K, V> {
+impl<'a, K, V> Iterator for MapEntries<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     #[inline]
@@ -266,18 +266,18 @@ impl<'a, K, V> Iterator for Entries<'a, K, V> {
     }
 }
 
-impl<K, V> ExactSizeIterator for Entries<'_, K, V> {}
-impl<K, V> FusedIterator for Entries<'_, K, V> {}
+impl<K, V> ExactSizeIterator for MapEntries<'_, K, V> {}
+impl<K, V> FusedIterator for MapEntries<'_, K, V> {}
 
 /// An iterator over the keys of a [`Map`].
 ///
 /// Created by [`Map::keys`].
 #[derive(Clone, Debug)]
-pub struct Keys<'a, K, V> {
+pub struct MapKeys<'a, K, V> {
     inner: Iter<'a, (K, V)>,
 }
 
-impl<'a, K, V> Iterator for Keys<'a, K, V> {
+impl<'a, K, V> Iterator for MapKeys<'a, K, V> {
     type Item = &'a K;
 
     #[inline]
@@ -291,18 +291,18 @@ impl<'a, K, V> Iterator for Keys<'a, K, V> {
     }
 }
 
-impl<K, V> ExactSizeIterator for Keys<'_, K, V> {}
-impl<K, V> FusedIterator for Keys<'_, K, V> {}
+impl<K, V> ExactSizeIterator for MapKeys<'_, K, V> {}
+impl<K, V> FusedIterator for MapKeys<'_, K, V> {}
 
 /// An iterator over the values of a [`Map`].
 ///
 /// Created by [`Map::values`].
 #[derive(Clone, Debug)]
-pub struct Values<'a, K, V> {
+pub struct MapValues<'a, K, V> {
     inner: Iter<'a, (K, V)>,
 }
 
-impl<'a, K, V> Iterator for Values<'a, K, V> {
+impl<'a, K, V> Iterator for MapValues<'a, K, V> {
     type Item = &'a V;
 
     #[inline]
@@ -316,8 +316,8 @@ impl<'a, K, V> Iterator for Values<'a, K, V> {
     }
 }
 
-impl<K, V> ExactSizeIterator for Values<'_, K, V> {}
-impl<K, V> FusedIterator for Values<'_, K, V> {}
+impl<K, V> ExactSizeIterator for MapValues<'_, K, V> {}
+impl<K, V> FusedIterator for MapValues<'_, K, V> {}
 
 #[expect(
     clippy::into_iter_without_iter,
@@ -325,7 +325,7 @@ impl<K, V> FusedIterator for Values<'_, K, V> {}
 )]
 impl<'a, K, V> IntoIterator for &'a Map<K, V> {
     type Item = (&'a K, &'a V);
-    type IntoIter = Entries<'a, K, V>;
+    type IntoIter = MapEntries<'a, K, V>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {

@@ -126,7 +126,7 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub use lute_core::{Keys, Map, MapEntries, Set, SetEntries, Values};
+pub use lute_core::{Map, MapEntries, MapKeys, MapValues, Set, SetEntries};
 
 #[cfg(feature = "macros")]
 pub use lute_macros::{map, set};

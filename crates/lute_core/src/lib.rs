@@ -19,8 +19,8 @@ mod construct;
 #[cfg(feature = "codegen")]
 mod bake;
 
-pub use map::{Entries as MapEntries, Keys, Map, Values};
-pub use set::{Entries as SetEntries, Set};
+pub use map::{Map, MapEntries, MapKeys, MapValues};
+pub use set::{Set, SetEntries};
 
 #[cfg(feature = "construct")]
 #[doc(hidden)]
