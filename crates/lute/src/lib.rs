@@ -82,7 +82,7 @@
 //!
 //! ```ignore
 //! use lute::Map;
-//! use std::env::var;
+//! use std::env::var_os;
 //! use std::fs::write;
 //! use std::path::Path;
 //!
@@ -94,7 +94,7 @@
 //!         planets.to_tokens()
 //!     );
 //!
-//!     let path = Path::new(&var("OUT_DIR").unwrap()).join("planets.rs");
+//!     let path = Path::new(&var_os("OUT_DIR").unwrap()).join("planets.rs");
 //!     write(path, code).unwrap();
 //!     println!("cargo:rerun-if-changed=build.rs");
 //! }
@@ -114,6 +114,11 @@
 //! Embedded maps and sets are not necessarily stable across breaking versions and should be regenerated.
 //!
 //! Keys must hash identically on the machine that builds the map and the target that runs it.
+//! Platform properties that can affect this include:
+//! - Pointer width. Keys whose hash uses `usize` or `isize` either directly or via a length prefix
+//!   (e.g. arrays, slices, byte strings, C strings) hash differently across targets of different pointer width.
+//! - Endianness. Arrays and slices of multibyte integers (e.g. `[u16; N]`, `&[u32]`) hash their raw native-endian bytes,
+//!   so they hash differently across targets of different endianness.
 //!
 //! Keys must also have consistent [`Hash`](core::hash::Hash) and [`Eq`](core::cmp::Eq): equal keys must hash equally
 //! and two keys that are distinct under `Eq` must not hash identically under every seed.
