@@ -6,19 +6,17 @@ use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
 
-/// Returns the path tokens for the `lute` crate and registers it with the bake environment.
+/// Returns the path to the `lute` crate and registers it with the bake environment.
 ///
-/// Generated code defaults to `::lute`. When Cargo can resolve how the consuming crate imports `lute`, that name is used instead.
+/// Generated code defaults to `::lute`; when Cargo can resolve how the consuming crate imports `lute`, that name is used instead.
 fn crate_path(ctx: &CrateEnv) -> TokenStream {
-    // `proc-macro-crate` caches resolution per-manifest with timestamp invalidation,
-    // so calling it on every bake is cheap. The common case and fallback use the `'static` literal.
     let name: &'static str = match crate_name("lute") {
         Ok(FoundCrate::Name(name)) if name != "lute" => name.leak(),
         _ => "lute",
     };
-
     ctx.insert(name);
-    name.parse().unwrap()
+    let path: TokenStream = name.parse().unwrap();
+    quote! { ::#path }
 }
 
 #[cfg(feature = "codegen")]
@@ -34,7 +32,7 @@ where
         let entries = self.entries.iter().map(|e| e.bake(ctx));
 
         quote! {
-            ::#krate::Map::from_baked_parts(
+            #krate::Map::from_baked_parts(
                 #seed,
                 &[#(#displacements),*],
                 &[#(#entries),*],
@@ -64,7 +62,7 @@ impl<T: Bake> Bake for Set<T> {
         let map = self.map.bake(ctx);
 
         quote! {
-            ::#krate::Set::from_baked_map(#map)
+            #krate::Set::from_baked_map(#map)
         }
     }
 }
