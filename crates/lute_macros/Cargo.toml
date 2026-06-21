@@ -1,0 +1,23 @@
+[package]
+name = "lute_macros"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Procedural macros for the lute crate"
+documentation = "https://docs.rs/lute_macros"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+lute_core = { workspace = true, features = ["construct"] }
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+proc-macro-crate.workspace = true
+
+[lints]
+workspace = true
