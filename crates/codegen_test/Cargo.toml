@@ -1,0 +1,12 @@
+[package]
+name = "codegen_test"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+lute = { path = "../lute" }
+
+[build-dependencies]
+lute = { path = "../lute", features = ["codegen"] }

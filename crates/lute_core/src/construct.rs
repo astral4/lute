@@ -183,9 +183,13 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     // Bucket keys with a CSR layout: one packed key array plus offsets instead of a `Vec<usize>` per bucket.
     // `u16` suffices since every index, count, and offset is at most `table_len`, which is itself at most `u16::MAX`.
     // After the prefix sum, `starts[b]..starts[b + 1]` is bucket `b`'s slice.
+    let buckets: Vec<u16> = hashes
+        .iter()
+        .map(|&h| bucket(h, num_buckets) as u16)
+        .collect();
     let mut starts = vec![0u16; num_buckets + 1];
-    for &h in hashes {
-        starts[bucket(h, num_buckets) + 1] += 1;
+    for &b in &buckets {
+        starts[usize::from(b) + 1] += 1;
     }
     for b in 0..num_buckets {
         starts[b + 1] += starts[b];
@@ -194,10 +198,9 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     // Scatter each key index into its bucket's slice.
     let mut bucket_keys = vec![0u16; table_len];
     let mut cursor = starts.clone();
-    for (i, &h) in hashes.iter().enumerate() {
-        let b = bucket(h, num_buckets);
-        bucket_keys[cursor[b] as usize] = i as u16;
-        cursor[b] += 1;
+    for (i, &b) in buckets.iter().enumerate() {
+        bucket_keys[usize::from(cursor[usize::from(b)])] = i as u16;
+        cursor[usize::from(b)] += 1;
     }
 
     // Process the largest buckets first while the table is mostly empty.
@@ -452,10 +455,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::DIRECT_MAX;
-    use super::apply_permutation;
+    use super::{DIRECT_MAX, MAX_LEN, apply_permutation, order_buckets_by_size};
     use crate::kernel::SCAN_MAX;
     use crate::map::Map;
+    use std::cmp::Reverse;
     use std::collections::HashSet;
 
     #[test]
@@ -470,13 +473,7 @@ mod test {
     }
 
     #[test]
-    fn counting_sort_matches_comparison_sort() {
-        use super::order_buckets_by_size;
-        use core::cmp::Reverse;
-
-        // Each case is a list of bucket sizes; the counting sort must order bucket indices exactly like a
-        // comparison sort keyed on (descending size, ascending index). Covers ties, zero-size buckets,
-        // ascending, descending, a single dominant bucket, and a single bucket.
+    fn counting_sort() {
         let cases: &[&[u16]] = &[
             &[3],
             &[1, 1, 1, 1],
@@ -557,5 +554,24 @@ mod test {
         assert!(saw_scan, "scan strategy never used");
         assert!(saw_direct, "direct strategy never used");
         assert!(saw_chd, "CHD strategy never used");
+    }
+
+    #[test]
+    fn construct_at_max_len() {
+        let n = u32::try_from(MAX_LEN).expect("MAX_LEN fits in u32");
+        let map: Map<u32, u32> = (0..n).map(|k| (k, k)).collect();
+
+        assert_eq!(map.len(), MAX_LEN);
+        for k in 0..n {
+            assert_eq!(map.get(&k), Some(&k), "missing key {k}");
+        }
+        assert_eq!(map.get(&n), None);
+    }
+
+    #[test]
+    #[should_panic = "cannot have more than"]
+    fn construct_above_max_len_panics() {
+        let n = u32::try_from(MAX_LEN).expect("MAX_LEN fits in u32");
+        drop((0..=n).map(|k| (k, ())).collect::<Map<u32, ()>>());
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lute", "crates/lute_core", "crates/lute_macros"]
+members = ["crates/lute", "crates/lute_core", "crates/lute_macros", "crates/codegen_test"]
 
 [workspace.package]
 version = "0.0.0"

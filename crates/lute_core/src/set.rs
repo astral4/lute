@@ -233,24 +233,3 @@ mod test {
         drop(Set::from([Value::MAX, Value::MAX]));
     }
 }
-
-#[cfg(all(test, feature = "codegen"))]
-mod test_codegen {
-    use super::Set;
-
-    #[test]
-    fn to_tokens() {
-        let build = || Set::from([1u32, 2, 3]);
-        let rendered = build().to_tokens().to_string();
-
-        for needle in ["Set", "from_baked_map", "Map", "from_baked_parts"] {
-            assert!(
-                rendered.contains(needle),
-                "missing {needle:?} in {rendered}"
-            );
-        }
-
-        // Check determinism
-        assert_eq!(rendered, build().to_tokens().to_string());
-    }
-}

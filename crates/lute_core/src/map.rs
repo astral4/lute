@@ -487,24 +487,3 @@ mod test {
         drop(Map::from([(Collide(1, 1), "a"), (Collide(1, 2), "b")]));
     }
 }
-
-#[cfg(all(test, feature = "codegen"))]
-mod test_codegen {
-    use super::Map;
-
-    #[test]
-    fn to_tokens() {
-        let build = || Map::from([("foo", 1u32), ("bar", 2), ("baz", 3)]);
-        let rendered = build().to_tokens().to_string();
-
-        for needle in ["Map", "from_baked_parts", "\"foo\"", "\"bar\"", "\"baz\""] {
-            assert!(
-                rendered.contains(needle),
-                "missing {needle:?} in {rendered}"
-            );
-        }
-
-        // Check determinism
-        assert_eq!(rendered, build().to_tokens().to_string());
-    }
-}
