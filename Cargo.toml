@@ -1,42 +1,31 @@
-[package]
-name = "lute"
+[workspace]
+resolver = "3"
+members = ["crates/lute", "crates/lute_core", "crates/lute_macros"]
+
+[workspace.package]
 version = "0.0.0"
 authors = ["Kyle Chen"]
 edition = "2024"
 rust-version = "1.88"
-description = "Immutable maps and sets built from fixed entries"
-documentation = "https://docs.rs/lute"
-readme = "README.md"
 repository = "https://github.com/astral4/lute"
 license = "MIT OR Apache-2.0"
-keywords = ["map", "phf", "set"]
-categories = ["data-structures", "no-std"]
 
-[package.metadata.docs.rs]
-all-features = true
-
-[dependencies]
-foldhash = { version = "0.2", default-features = false }
-databake = { version = "0.2", optional = true }
-proc-macro-crate = { version = "3", optional = true }
-hashbrown = { version = "0.17", optional = true, default-features = false, features = ["default-hasher"] }
-rand_core = { version = "0.10", optional = true, default-features = false }
-rand_xoshiro = { version = "0.8", optional = true, default-features = false }
-
-[features]
-default = ["construct"]
-construct = ["dep:hashbrown", "dep:rand_core", "dep:rand_xoshiro"]
-codegen = ["construct", "dep:databake", "dep:proc-macro-crate"]
-
-[dev-dependencies]
+[workspace.dependencies]
+lute_core = { path = "crates/lute_core", default-features = false }
+lute_macros = { path = "crates/lute_macros" }
+databake = "0.2"
 divan = "0.1"
+foldhash = { version = "0.2", default-features = false }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
+proc-macro-crate = "3"
+proc-macro2 = "1"
+quote = "1"
+rand_core = { version = "0.10", default-features = false }
+rand_xoshiro = { version = "0.8", default-features = false }
+syn = { version = "2", features = ["full"] }
+trybuild = "1"
 
-[[bench]]
-name = "bench"
-harness = false
-required-features = ["construct"]
-
-[lints.rust]
+[workspace.lints.rust]
 async_fn_in_trait = "allow"
 ffi_unwind_calls = "warn"
 let_underscore_drop = "deny"
@@ -59,9 +48,9 @@ unused_lifetimes = "deny"
 unused_macro_rules = "deny"
 unused_qualifications = "deny"
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 redundant_explicit_links = "allow"
 
-[lints.clippy]
+[workspace.lints.clippy]
 module_name_repetitions = { level = "allow", priority = 1 }
 pedantic = "warn"

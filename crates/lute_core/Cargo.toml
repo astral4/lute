@@ -1,0 +1,29 @@
+[package]
+name = "lute_core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Core implementation for the lute crate"
+documentation = "https://docs.rs/lute_core"
+categories = ["data-structures", "no-std"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+foldhash.workspace = true
+databake = { workspace = true, optional = true }
+proc-macro-crate = { workspace = true, optional = true }
+hashbrown = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
+rand_xoshiro = { workspace = true, optional = true }
+
+[features]
+construct = ["dep:hashbrown", "dep:rand_core", "dep:rand_xoshiro"]
+codegen = ["construct", "dep:databake", "dep:proc-macro-crate"]
+
+[lints]
+workspace = true

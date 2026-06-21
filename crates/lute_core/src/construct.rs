@@ -33,34 +33,40 @@ const DIRECT_BUDGET: usize = 1 << 16;
 /// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
 const CHD_BUDGET: usize = 1 << 8;
 
-const MAX_LEN: usize = u16::MAX as usize;
+/// The maximum number of entries.
+#[doc(hidden)]
+pub const MAX_LEN: usize = u16::MAX as usize;
 
-struct MapState {
-    seed: u64,
-    displacements: Vec<(u16, u16)>,
-    indices: Vec<usize>,
+/// Perfect hash function construction result containing the hash seed, the CHD displacement table,
+/// and the permutation mapping each output slot to the index of its source key.
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct MapState {
+    pub seed: u64,
+    pub displacements: Vec<(u16, u16)>,
+    pub indices: Vec<usize>,
 }
 
 /// The CHD displacement table plus the permutation mapping each slot to the original entry index.
 type ChdTables = (Vec<(u16, u16)>, Vec<usize>);
 
 #[inline]
-fn generate<T>(entries: &[T]) -> MapState
+fn generate<T>(entries: &[T]) -> Option<MapState>
 where
     T: Hash,
 {
     let n = entries.len();
 
     if n <= SCAN_MAX {
-        MapState {
+        Some(MapState {
             seed: 0,
             displacements: Vec::new(),
             indices: (0..n).collect(),
-        }
+        })
     } else if n <= DIRECT_MAX
         && let Some(state) = generate_direct(entries, n)
     {
-        state
+        Some(state)
     } else {
         generate_chd(entries, n)
     }
@@ -102,7 +108,7 @@ where
 
 /// CHD (compress, hash, displace): assign keys to buckets,
 /// then find per-bucket displacements packing every key into a distinct slot.
-fn generate_chd<T>(entries: &[T], n: usize) -> MapState
+fn generate_chd<T>(entries: &[T], n: usize) -> Option<MapState>
 where
     T: Hash,
 {
@@ -115,18 +121,15 @@ where
         hashes.extend(entries.iter().map(|entry| hash(entry, seed)));
 
         if let Some((displacements, indices)) = try_chd(&hashes, n) {
-            return MapState {
+            return Some(MapState {
                 seed,
                 displacements,
                 indices,
-            };
+            });
         }
     }
 
-    panic!(
-        "could not find a perfect hash function for the given keys after {CHD_BUDGET} attempts; \
-         two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
-    );
+    None
 }
 
 #[inline]
@@ -279,6 +282,17 @@ fn is_permutation(indices: &[usize]) -> bool {
         .all(|&i| i < n && !replace(&mut seen[i], true))
 }
 
+/// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`],
+/// or `None` if no perfect hash function can be found.
+#[doc(hidden)]
+#[must_use]
+pub fn construct<T>(keys: &[T]) -> Option<MapState>
+where
+    T: Hash,
+{
+    generate(keys)
+}
+
 impl<K, V> Map<K, V> {
     /// Constructs a `Map` from a vector of key-value entries.
     ///
@@ -302,7 +316,12 @@ impl<K, V> Map<K, V> {
 
         assert!(!has_duplicates(&keys), "duplicate key present");
 
-        let mut state = generate(&keys);
+        let mut state = generate(&keys).unwrap_or_else(|| {
+            panic!(
+                "could not find a perfect hash function for the given keys after {CHD_BUDGET} attempts; \
+                 two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
+            )
+        });
 
         let mut entries = entries;
         unsafe {
