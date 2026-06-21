@@ -362,6 +362,7 @@ impl<K, V> Map<K, V> {
     }
 }
 
+#[cfg(feature = "construct")]
 impl<K, V, const N: usize> From<[(K, V); N]> for Map<K, V>
 where
     K: Eq + Hash,
@@ -378,6 +379,7 @@ where
     }
 }
 
+#[cfg(feature = "construct")]
 impl<K, V> FromIterator<(K, V)> for Map<K, V>
 where
     K: Eq + Hash,
@@ -414,6 +416,7 @@ impl<T> Set<T> {
     }
 }
 
+#[cfg(feature = "construct")]
 impl<T, const N: usize> From<[T; N]> for Set<T>
 where
     T: Eq + Hash,
@@ -430,6 +433,7 @@ where
     }
 }
 
+#[cfg(feature = "construct")]
 impl<T> FromIterator<T> for Set<T>
 where
     T: Eq + Hash,

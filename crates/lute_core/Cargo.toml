@@ -12,6 +12,7 @@ categories = ["data-structures", "no-std"]
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 foldhash.workspace = true

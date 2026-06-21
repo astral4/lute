@@ -3,6 +3,7 @@
 //! Depend on `lute` rather than this crate directly.
 
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;
 #[cfg(feature = "codegen")]

@@ -119,6 +119,7 @@
 //! and two keys that are distinct under `Eq` must not hash identically under every seed.
 
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use lute_core::{Keys, Map, MapEntries, Set, SetEntries, Values};
 

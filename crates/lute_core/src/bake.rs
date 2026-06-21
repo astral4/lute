@@ -21,6 +21,7 @@ fn crate_path(ctx: &CrateEnv) -> TokenStream {
     name.parse().unwrap()
 }
 
+#[cfg(feature = "codegen")]
 impl<K, V> Bake for Map<K, V>
 where
     K: Bake,
@@ -42,6 +43,7 @@ where
     }
 }
 
+#[cfg(feature = "codegen")]
 impl<K, V> Map<K, V>
 where
     K: Bake,
@@ -55,6 +57,7 @@ where
     }
 }
 
+#[cfg(feature = "codegen")]
 impl<T: Bake> Bake for Set<T> {
     fn bake(&self, ctx: &CrateEnv) -> TokenStream {
         let krate = crate_path(ctx);
@@ -66,6 +69,7 @@ impl<T: Bake> Bake for Set<T> {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl<T: Bake> Set<T> {
     /// Serializes the `Set` into a token stream of literal Rust code that reconstructs it.
     /// Used for embedding in generated code.
