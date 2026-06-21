@@ -1,0 +1,38 @@
+[package]
+name = "lute"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Immutable maps and sets built from fixed entries"
+documentation = "https://docs.rs/lute"
+readme = "../../README.md"
+keywords = ["map", "phf", "set"]
+categories = ["data-structures", "no-std"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+lute_core.workspace = true
+lute_macros = { workspace = true, optional = true }
+
+[features]
+default = ["construct"]
+construct = ["lute_core/construct"]
+codegen = ["lute_core/codegen"]
+macros = ["dep:lute_macros"]
+
+[dev-dependencies]
+divan.workspace = true
+trybuild.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["construct"]
+
+[lints]
+workspace = true
