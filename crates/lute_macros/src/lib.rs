@@ -630,66 +630,125 @@ fn hash_depends_on_pointer_width(expr: &Expr) -> bool {
     }
 }
 
-fn with_pointer_width_guard(expr: TokenStream2, keys: &[&Expr]) -> TokenStream2 {
+/// Returns whether the input key's hash depends on the build host's endianness.
+fn hash_depends_on_endianness(expr: &Expr) -> bool {
+    match expr {
+        Expr::Array(array) => array
+            .elems
+            .iter()
+            .any(|e| is_multibyte_int(e) || hash_depends_on_endianness(e)),
+        Expr::Repeat(repeat) => {
+            is_multibyte_int(&repeat.expr) || hash_depends_on_endianness(&repeat.expr)
+        }
+        Expr::Tuple(tuple) => tuple.elems.iter().any(hash_depends_on_endianness),
+        Expr::Paren(paren) => hash_depends_on_endianness(&paren.expr),
+        Expr::Group(group) => hash_depends_on_endianness(&group.expr),
+        Expr::Reference(reference) => hash_depends_on_endianness(&reference.expr),
+        _ => false,
+    }
+}
+
+fn is_multibyte_int(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(int), ..
+        }) => !matches!(int.suffix(), "" | "u8" | "i8"),
+        Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => is_multibyte_int(&unary.expr),
+        Expr::Paren(paren) => is_multibyte_int(&paren.expr),
+        Expr::Group(group) => is_multibyte_int(&group.expr),
+        _ => false,
+    }
+}
+
+/// Wraps `expr` in compile-time assertions that fail if the target's pointer width
+/// or endianness differs from the build host's, for keys whose hash depends on either.
+fn with_portability_guard(expr: TokenStream2, keys: &[&Expr]) -> TokenStream2 {
+    let mut guards = TokenStream2::new();
+
     if keys.iter().any(|&key| hash_depends_on_pointer_width(key)) {
         let host_width = size_of::<usize>();
         let message = format!(
             "a key's hash was computed for a {host_width}-byte pointer width, but this target's pointer width differs; \
              rebuild on a matching target or use keys with width-independent hashes"
         );
-        quote! {{
+        guards.extend(quote! {
             const _: () = ::core::assert!(::core::mem::size_of::<usize>() == #host_width, #message);
+        });
+    }
+
+    if keys.iter().any(|&key| hash_depends_on_endianness(key)) {
+        let host_little = cfg!(target_endian = "little");
+        let host_endian = if host_little {
+            "little-endian"
+        } else {
+            "big-endian"
+        };
+        let message = format!(
+            "a key's hash was computed on a {host_endian} build host, but this target's endianness differs; \
+             rebuild on a matching target or use keys with endianness-independent hashes"
+        );
+        guards.extend(quote! {
+            const _: () = ::core::assert!(::core::cfg!(target_endian = "little") == #host_little, #message);
+        });
+    }
+
+    if guards.is_empty() {
+        expr
+    } else {
+        quote! {{
+            #guards
             #expr
         }}
-    } else {
-        expr
     }
 }
 
-fn expand_map(input: MapInput) -> SynResult<TokenStream2> {
-    let entries: Vec<MapEntry> = input.entries.into_iter().collect();
-    let keys: Vec<&Expr> = entries.iter().map(|entry| &entry.key).collect();
-
+fn build_output(
+    keys: &[&Expr],
+    bake_entry: impl Fn(usize) -> TokenStream2,
+    wrap: impl FnOnce(TokenStream2, &TokenStream2) -> TokenStream2,
+) -> SynResult<TokenStream2> {
     let MapState {
         seed,
         displacements,
         indices,
-    } = compute_parts(&keys)?;
+    } = compute_parts(keys)?;
     let krate = crate_path();
     let displacements = displacement_tokens(&displacements);
-    let baked = indices.iter().map(|&i| {
-        let MapEntry { key, value } = &entries[i];
-        quote!((#key, #value))
-    });
+    let baked = indices.iter().map(|&i| bake_entry(i));
 
-    let body = quote! {
+    let table = quote! {
         #krate::Map::from_baked_parts(#seed, &[#(#displacements),*], &[#(#baked),*])
     };
-    Ok(with_pointer_width_guard(body, &keys))
+
+    Ok(with_portability_guard(wrap(table, &krate), keys))
+}
+
+fn expand_map(input: MapInput) -> SynResult<TokenStream2> {
+    let entries: Vec<_> = input.entries.into_iter().collect();
+    let keys: Vec<_> = entries.iter().map(|entry| &entry.key).collect();
+
+    build_output(
+        &keys,
+        |i| {
+            let MapEntry { key, value } = &entries[i];
+            quote!((#key, #value))
+        },
+        |table, _| table,
+    )
 }
 
 fn expand_set(input: SetInput) -> SynResult<TokenStream2> {
-    let elements: Vec<Expr> = input.elements.into_iter().collect();
-    let keys: Vec<&Expr> = elements.iter().collect();
+    let elements: Vec<_> = input.elements.into_iter().collect();
+    let keys: Vec<_> = elements.iter().collect();
 
-    let MapState {
-        seed,
-        displacements,
-        indices,
-    } = compute_parts(&keys)?;
-    let krate = crate_path();
-    let displacements = displacement_tokens(&displacements);
-    let baked = indices.iter().map(|&i| {
-        let element = &elements[i];
-        quote!((#element, ()))
-    });
-
-    let body = quote! {
-        #krate::Set::from_baked_map(
-            #krate::Map::from_baked_parts(#seed, &[#(#displacements),*], &[#(#baked),*])
-        )
-    };
-    Ok(with_pointer_width_guard(body, &keys))
+    build_output(
+        &keys,
+        |i| {
+            let element = &elements[i];
+            quote!((#element, ()))
+        },
+        |table, krate| quote! { #krate::Set::from_baked_map(#table) },
+    )
 }
 
 /// Renders an error to tokens for the macro's expression position.
@@ -761,7 +820,11 @@ pub fn set(input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use super::{HashKey, IntBits, SynResult, expr_to_hash_key, hash_depends_on_pointer_width};
+    use super::{
+        HashKey, IntBits, SynResult, expr_to_hash_key, hash_depends_on_endianness,
+        hash_depends_on_pointer_width, with_portability_guard,
+    };
+    use quote::quote;
     use std::ffi::CString;
 
     fn hash_key(src: &str) -> SynResult<HashKey> {
@@ -948,6 +1011,61 @@ mod tests {
         ] {
             assert!(!depends(src), "{src} should not depend on pointer width");
         }
+    }
+
+    #[test]
+    fn endianness_dependence() {
+        let depends =
+            |src: &str| hash_depends_on_endianness(&syn::parse_str::<syn::Expr>(src).unwrap());
+
+        for src in [
+            "[1u16, 2u16]",
+            "&[1u32, 2u32]",
+            "[0u16; 4]",
+            "[-1i32, 2i32]",
+            "(1u8, [2u16, 3u16])",
+            "[[1u16, 2u16], [3u16, 4u16]]",
+        ] {
+            assert!(depends(src), "{src} should depend on endianness");
+        }
+
+        for src in [
+            "1u16",
+            "1u64",
+            "-5i64",
+            "[1u8, 2u8]",
+            "b\"hi\"",
+            "c\"hi\"",
+            "\"hi\"",
+            "'a'",
+            "(1u16, 2u8)",
+            "0u16..10u16",
+            "[b'a', b'b']",
+        ] {
+            assert!(!depends(src), "{src} should not depend on endianness");
+        }
+    }
+
+    #[test]
+    fn portability_guard_emission() {
+        let guard = |src: &str| {
+            let key = syn::parse_str::<syn::Expr>(src).unwrap();
+            with_portability_guard(quote!(MAP), &[&key]).to_string()
+        };
+
+        let width_only = guard("1usize");
+        assert!(
+            width_only.contains("size_of") && !width_only.contains("target_endian"),
+            "{width_only}"
+        );
+
+        let both = guard("[1u16, 2u16]");
+        assert!(
+            both.contains("size_of") && both.contains("target_endian"),
+            "{both}"
+        );
+
+        assert_eq!(guard("\"hi\""), "MAP");
     }
 
     #[test]
