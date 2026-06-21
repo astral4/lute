@@ -4,7 +4,6 @@ use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
 use crate::map::{CowSlice, Map};
 use crate::set::Set;
 use alloc::{vec, vec::Vec};
-use core::cmp::Reverse;
 use core::hash::Hash;
 use core::mem::replace;
 use core::ptr::{read, write};
@@ -132,6 +131,35 @@ where
     None
 }
 
+/// Returns bucket indices ordered by descending size, with ties broken by ascending index.
+///
+/// Equivalent to `sort_unstable_by_key(|&b| (Reverse(size(b)), b))`,
+fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
+    // `starts` is the CSR prefix sum, so bucket `b`'s size is  `starts[b + 1] - starts[b]`.
+    let num_buckets = u16::try_from(starts.len() - 1).expect("num_buckets fits in u16");
+    let size = |b: u16| starts[usize::from(b) + 1] - starts[usize::from(b)];
+    let max = usize::from((0..num_buckets).map(size).max().unwrap_or(0));
+
+    // Count buckets per size, then turn those counts into each size's starting output slot in place.
+    let mut slots = vec![0u16; max + 1];
+    for b in 0..num_buckets {
+        slots[usize::from(size(b))] += 1;
+    }
+    let mut offset = 0u16;
+    for slot in slots.iter_mut().rev() {
+        offset += replace(slot, offset);
+    }
+
+    // Scatter buckets in ascending index order, so within one size they keep index order for breaking ties.
+    let mut order = vec![0u16; usize::from(num_buckets)];
+    for b in 0..num_buckets {
+        let slot = &mut slots[usize::from(size(b))];
+        order[usize::from(*slot)] = b;
+        *slot += 1;
+    }
+    order
+}
+
 #[inline]
 #[expect(
     clippy::cast_possible_truncation,
@@ -173,9 +201,7 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     }
 
     // Process the largest buckets first while the table is mostly empty.
-    // This is a total order, so the sort results and output data are reproducible even with unstable sorting.
-    let mut order: Vec<_> = (0..num_buckets as u16).collect();
-    order.sort_unstable_by_key(|&b| (Reverse(starts[b as usize + 1] - starts[b as usize]), b));
+    let order = order_buckets_by_size(&starts);
 
     let bound = table_len as u16;
     let splits: Vec<_> = hashes.iter().map(|&h| split(h)).collect();
@@ -437,6 +463,43 @@ mod test {
         unsafe { apply_permutation(&mut data, &mut indices) };
 
         assert_eq!(data, ["c", "a", "b", "d", "f", "e"]);
+    }
+
+    #[test]
+    fn counting_sort_matches_comparison_sort() {
+        use super::order_buckets_by_size;
+        use core::cmp::Reverse;
+
+        // Each case is a list of bucket sizes; the counting sort must order bucket indices exactly like a
+        // comparison sort keyed on (descending size, ascending index). Covers ties, zero-size buckets,
+        // ascending, descending, a single dominant bucket, and a single bucket.
+        let cases: &[&[u16]] = &[
+            &[3],
+            &[1, 1, 1, 1],
+            &[0, 5, 2, 5, 1, 2, 5],
+            &[1, 2, 3, 4, 5],
+            &[5, 4, 3, 2, 1],
+            &[10, 0, 0, 0, 0, 0, 0],
+            &[2, 0, 2, 0, 2, 0, 2],
+        ];
+
+        for &sizes in cases {
+            let mut starts = vec![0u16; sizes.len() + 1];
+            for (b, &s) in sizes.iter().enumerate() {
+                starts[b + 1] = starts[b] + s;
+            }
+
+            let mut expected: Vec<u16> = (0..sizes.len())
+                .map(|b| u16::try_from(b).unwrap())
+                .collect();
+            expected.sort_unstable_by_key(|&b| (Reverse(sizes[usize::from(b)]), b));
+
+            assert_eq!(
+                order_buckets_by_size(&starts),
+                expected,
+                "sizes = {sizes:?}"
+            );
+        }
     }
 
     #[test]
