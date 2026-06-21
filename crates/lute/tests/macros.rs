@@ -1,8 +1,10 @@
 #![cfg(feature = "macros")]
 
-use lute::{Map, Set};
+use core::ffi::CStr;
+use core::ops::{Range, RangeInclusive};
+use lute::{Map, Set, map, set};
 
-static PLANETS: Map<&str, i32> = lute::map! {
+static PLANETS: Map<&str, i32> = map! {
     "Mercury" => 1,
     "Venus" => 2,
     "Earth" => 3,
@@ -17,7 +19,7 @@ fn map_str_keys() {
     assert_eq!(PLANETS.get("Pluto"), None);
 }
 
-static CODES: Map<u32, &str> = lute::map! {
+static CODES: Map<u32, &str> = map! {
     200u32 => "ok",
     404u32 => "not found",
     500u32 => "error",
@@ -30,7 +32,7 @@ fn map_int_keys() {
     assert_eq!(CODES.get(&418), None);
 }
 
-static OFFSETS: Map<i32, &str> = lute::map! {
+static OFFSETS: Map<i32, &str> = map! {
     -1i32 => "before",
     0i32 => "here",
     1i32 => "after",
@@ -44,7 +46,7 @@ fn map_negative_keys() {
     assert_eq!(OFFSETS.get(&2), None);
 }
 
-static FLAGS: Map<bool, &str> = lute::map! {
+static FLAGS: Map<bool, &str> = map! {
     true => "yes",
     false => "no",
 };
@@ -55,7 +57,7 @@ fn map_bool_keys() {
     assert_eq!(FLAGS[&false], "no");
 }
 
-static EMPTY: Map<&str, i32> = lute::map! {};
+static EMPTY: Map<&str, i32> = map! {};
 
 #[test]
 fn map_empty() {
@@ -63,7 +65,7 @@ fn map_empty() {
     assert_eq!(EMPTY.get("anything"), None);
 }
 
-static BYTES: Map<&[u8], i32> = lute::map! {
+static BYTES: Map<&[u8], i32> = map! {
     b"a" => 1,
     b"bb" => 2,
     b"ccc" => 3,
@@ -77,7 +79,7 @@ fn map_byte_string_keys() {
     assert_eq!(BYTES.get(b"zzz".as_slice()), None);
 }
 
-static VOWELS: Set<char> = lute::set! { 'a', 'e', 'i', 'o', 'u' };
+static VOWELS: Set<char> = set! { 'a', 'e', 'i', 'o', 'u' };
 
 #[test]
 fn set_char_elements() {
@@ -86,7 +88,7 @@ fn set_char_elements() {
     assert!(!VOWELS.contains(&'z'));
 }
 
-static PRIMES: Set<u64> = lute::set! { 2u64, 3u64, 5u64, 7u64, 11u64, 13u64 };
+static PRIMES: Set<u64> = set! { 2u64, 3u64, 5u64, 7u64, 11u64, 13u64 };
 
 #[test]
 fn set_int_elements() {
@@ -94,7 +96,7 @@ fn set_int_elements() {
     assert!(!PRIMES.contains(&8));
 }
 
-static MANY: Map<u32, u32> = lute::map! {
+static MANY: Map<u32, u32> = map! {
     0u32 => 0u32, 1u32 => 10u32, 2u32 => 20u32, 3u32 => 30u32, 4u32 => 40u32,
     5u32 => 50u32, 6u32 => 60u32, 7u32 => 70u32, 8u32 => 80u32, 9u32 => 90u32,
     10u32 => 100u32, 11u32 => 110u32, 12u32 => 120u32, 13u32 => 130u32, 14u32 => 140u32,
@@ -163,7 +165,7 @@ fn map_slice_keys() {
     assert_eq!(SLICES.get([0u32].as_slice()), None);
 }
 
-static SPANS: Map<core::ops::Range<u16>, &str> = lute::map! {
+static SPANS: Map<Range<u16>, &str> = lute::map! {
     0u16..10u16 => "low",
     10u16..20u16 => "mid",
     20u16..30u16 => "high",
@@ -176,7 +178,7 @@ fn map_range_keys() {
     assert_eq!(SPANS.get(&(5u16..15)), None);
 }
 
-static GRADES: Map<core::ops::RangeInclusive<u8>, char> = lute::map! {
+static GRADES: Map<RangeInclusive<u8>, char> = lute::map! {
     90u8..=100u8 => 'A',
     80u8..=89u8 => 'B',
     70u8..=79u8 => 'C',
@@ -189,7 +191,7 @@ fn map_inclusive_range_keys() {
     assert_eq!(GRADES.get(&(0u8..=10)), None);
 }
 
-static LETTER_BANDS: Set<core::ops::Range<char>> = lute::set! { 'a'..'e', 'm'..'q' };
+static LETTER_BANDS: Set<Range<char>> = lute::set! { 'a'..'e', 'm'..'q' };
 
 #[test]
 fn set_char_range_elements() {
@@ -197,7 +199,7 @@ fn set_char_range_elements() {
     assert!(!LETTER_BANDS.contains(&('a'..'f')));
 }
 
-static CSTRS: Map<&core::ffi::CStr, i32> = lute::map! {
+static CSTRS: Map<&CStr, i32> = lute::map! {
     c"alpha" => 1,
     c"beta" => 2,
 };

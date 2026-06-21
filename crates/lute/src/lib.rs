@@ -40,9 +40,9 @@
 //!
 //! ```
 //! # #[cfg(feature = "macros")] {
-//! use lute::Map;
+//! use lute::{Map, map};
 //!
-//! static PLANETS: Map<&str, i32> = lute::map! {
+//! static PLANETS: Map<&str, i32> = map! {
 //!     "Mercury" => 1,
 //!     "Venus" => 2,
 //!     "Earth" => 3,
@@ -55,9 +55,9 @@
 //!
 //! ```
 //! # #[cfg(feature = "macros")] {
-//! use lute::Set;
+//! use lute::{Set, set};
 //!
-//! static PRIMES: Set<u32> = lute::set! { 2u32, 3u32, 5u32, 7u32, 11u32 };
+//! static PRIMES: Set<u32> = set! { 2u32, 3u32, 5u32, 7u32, 11u32 };
 //!
 //! assert!(PRIMES.contains(&7));
 //! assert!(!PRIMES.contains(&8));

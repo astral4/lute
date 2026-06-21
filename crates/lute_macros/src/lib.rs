@@ -762,7 +762,9 @@ fn into_compile_errors(error: Error) -> TokenStream2 {
 /// The result is an expression that can be used for a `static` or `const`:
 ///
 /// ```ignore
-/// static PLANETS: lute::Map<&str, i32> = lute::map! {
+/// use lute::{Map, map};
+///
+/// static PLANETS: Map<&str, i32> = map! {
 ///     "Mercury" => 1,
 ///     "Venus" => 2,
 /// };
@@ -794,7 +796,9 @@ pub fn map(input: TokenStream) -> TokenStream {
 /// The result is an expression that can be used for a `static` or `const`:
 ///
 /// ```ignore
-/// static PRIMES: lute::Set<u32> = lute::set! { 2u32, 3u32, 5u32, 7u32 };
+/// use lute::{Set, set};
+///
+/// static PRIMES: Set<u32> = set! { 2u32, 3u32, 5u32, 7u32 };
 /// ```
 ///
 /// Entries can be made of the following literals and inline-constructible types:
@@ -826,9 +830,10 @@ mod tests {
     };
     use quote::quote;
     use std::ffi::CString;
+    use syn::parse_str;
 
     fn hash_key(src: &str) -> SynResult<HashKey> {
-        expr_to_hash_key(&syn::parse_str::<syn::Expr>(src)?)
+        expr_to_hash_key(&parse_str(src)?)
     }
 
     fn int(src: &str) -> (u8, u128) {
@@ -981,8 +986,7 @@ mod tests {
 
     #[test]
     fn pointer_width_dependence() {
-        let depends =
-            |src: &str| hash_depends_on_pointer_width(&syn::parse_str::<syn::Expr>(src).unwrap());
+        let depends = |src: &str| hash_depends_on_pointer_width(&parse_str(src).unwrap());
 
         for src in [
             "1usize",
@@ -1015,8 +1019,7 @@ mod tests {
 
     #[test]
     fn endianness_dependence() {
-        let depends =
-            |src: &str| hash_depends_on_endianness(&syn::parse_str::<syn::Expr>(src).unwrap());
+        let depends = |src: &str| hash_depends_on_endianness(&parse_str(src).unwrap());
 
         for src in [
             "[1u16, 2u16]",
@@ -1049,7 +1052,7 @@ mod tests {
     #[test]
     fn portability_guard_emission() {
         let guard = |src: &str| {
-            let key = syn::parse_str::<syn::Expr>(src).unwrap();
+            let key = parse_str(src).unwrap();
             with_portability_guard(quote!(MAP), &[&key]).to_string()
         };
 

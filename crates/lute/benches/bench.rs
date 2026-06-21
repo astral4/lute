@@ -1,6 +1,7 @@
 use core::borrow::Borrow;
 use core::hash::Hash;
-use divan::{Bencher, counter::ItemsCount};
+use divan::counter::ItemsCount;
+use divan::{Bencher, bench};
 use lute::Map;
 
 fn main() {
@@ -82,7 +83,7 @@ where
     map.get(key).copied()
 }
 
-#[divan::bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
+#[bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
 fn construct<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
     let entries: Vec<_> = T::present(n).into_iter().zip(0usize..).collect();
     bencher
@@ -91,7 +92,7 @@ fn construct<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
 }
 
 /// Repeated "hit" lookups for measuring amortized throughput.
-#[divan::bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
+#[bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
 fn get_hit<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
     let map = build::<T>(n);
     let queries = T::present(n);
@@ -105,7 +106,7 @@ fn get_hit<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
 }
 
 /// Repeated "hit" lookups with `#[inline(never)]` for measuring single-lookup latency.
-#[divan::bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
+#[bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
 fn get_hit_isolated<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
     let map = build::<T>(n);
     let queries = T::present(n);
@@ -118,7 +119,7 @@ fn get_hit_isolated<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
     });
 }
 
-#[divan::bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
+#[bench(types = [Ints, ShortStr, LongStr], args = SIZES)]
 fn get_miss<T: Workload>(bencher: Bencher<'_, '_>, n: usize) {
     let map = build::<T>(n);
     let queries = T::absent(n);
