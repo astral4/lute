@@ -11,8 +11,8 @@ repository = "https://github.com/astral4/lute"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-lute_core = { path = "crates/lute_core", default-features = false }
-lute_macros = { path = "crates/lute_macros" }
+lute_core = { path = "crates/lute_core", version = "=0.1.0", default-features = false }
+lute_macros = { path = "crates/lute_macros", version = "=0.1.0" }
 databake = "0.2"
 divan = "0.1"
 foldhash = { version = "0.2", default-features = false }
