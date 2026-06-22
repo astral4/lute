@@ -16,7 +16,7 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 const FIXED_SEED: u64 = 310_514_310_514_310_514;
 
 /// Average number of keys per bucket in the CHD strategy.
-const LAMBDA: usize = 5;
+const LAMBDA: usize = 4;
 
 /// Maps with at most this many entries try the displacement-free "direct" strategy: a single seed
 /// under which the keys are already perfect. The search costs roughly `e^n / sqrt(n)` seed attempts
