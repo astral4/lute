@@ -8,6 +8,8 @@
 
 Expected construction time is `O(n)`, where $n$ is the number of entries, and worst-case query time is `O(1)`.
 
+See [`BENCHMARKS.md`](https://github.com/astral4/lute/blob/main/BENCHMARKS.md) for performance comparisons to the `phf` crate.
+
 ## Usage
 
 ```rs
@@ -104,20 +106,6 @@ Keys must hash identically on the machine that builds the map and the target tha
 - Endianness. Arrays and slices of multibyte integers (e.g. `[u16; N]`, `&[u32]`) hash their raw native-endian bytes, so they hash differently across targets of different endianness.
 
 Keys must also have consistent [`Hash`](core::hash::Hash) and [`Eq`](core::cmp::Eq): equal keys must hash equally and two keys that are distinct under `Eq` must not hash identically under every seed.
-
-## Benchmarks
-
-### Apple M1 Pro (8-core)
-
-![PHF search time](plots/construct-search_m1.svg)
-![Isolated query latency](plots/query-isolated_m1.svg)
-![Amortized time per query](plots/query-amortized_m1.svg)
-
-### AMD Ryzen 9 9950X
-
-![PHF search time](plots/construct-search_9950x.svg)
-![Isolated query latency](plots/query-isolated_9950x.svg)
-![Amortized time per query](plots/query-amortized_9950x.svg)
 
 ## License
 
