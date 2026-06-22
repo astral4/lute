@@ -241,7 +241,11 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
                 for &key in keys {
                     let key = key as usize;
                     let (f1, f2) = splits[key];
-                    let index = fastmod(displace(f1, f2, d1, d2), multiplier, table_len);
+                    let index = fastmod(
+                        displace(f1, f2, u32::from(d1), u32::from(d2)),
+                        multiplier,
+                        table_len,
+                    );
 
                     // Reject if the slot is taken by a placed bucket (`map`)
                     // or an earlier key of this bucket under the current displacement (`values_to_add`).
@@ -509,7 +513,9 @@ mod test {
 
     #[test]
     fn strategies_across_sizes() {
-        let sizes = (0u32..=20).chain([50, 100, 256, 1000]);
+        // 49152 and 50000 land in the `2^15..2^16` non-power-of-two range that previously made CHD
+        // construction thrash; keeping them here exercises construct+lookup correctness in that zone.
+        let sizes = (0u32..=20).chain([50, 100, 256, 1000, 49152, 50000]);
         let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
 
         for n in sizes {
