@@ -1,7 +1,10 @@
 use core::borrow::Borrow;
 use core::hash::Hash;
 
-pub(crate) const SIZES: [usize; 14] = [1, 2, 4, 8, 9, 10, 12, 16, 32, 64, 128, 256, 512, 1024];
+pub(crate) const SIZES: [usize; 25] = [
+    1, 2, 4, 8, 9, 10, 12, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 25000, 32768,
+    50000, 60000, 65000, 65500, 65535,
+];
 
 /// A family of keys to benchmark. `present` and `absent` keys must be complementary sets.
 pub(crate) trait Workload {
