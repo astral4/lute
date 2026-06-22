@@ -6,7 +6,7 @@
 
 `lute` is a Rust library for immutable maps and sets built from fixed collections of up to 65535 (i.e. 2¹⁶ − 1) entries. It is designed with small sizes and use cases like lookup tables in mind. It is usable in a `no_std` environment by default.
 
-Expected construction time is `O(n)`, where $n$ is the number of entries, and worst-case query time is `O(1)`.
+Expected construction time is `O(n)`, where `n` is the number of entries, and worst-case query time is `O(1)`.
 
 See [`BENCHMARKS.md`](https://github.com/astral4/lute/blob/main/BENCHMARKS.md) for performance comparisons to the `phf` crate.
 
