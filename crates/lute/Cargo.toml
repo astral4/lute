@@ -28,10 +28,17 @@ macros = ["dep:lute_macros"]
 
 [dev-dependencies]
 divan.workspace = true
+phf.workspace = true
+phf_generator.workspace = true
 trybuild.workspace = true
 
 [[bench]]
-name = "bench"
+name = "lute"
+harness = false
+required-features = ["construct"]
+
+[[bench]]
+name = "phf"
 harness = false
 required-features = ["construct"]
 
