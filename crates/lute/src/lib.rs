@@ -109,7 +109,7 @@
 //! assert_eq!(PLANETS["Mars"], 4);
 //! ```
 //!
-//! ### Reproducibility and portability
+//! ## Reproducibility and portability
 //!
 //! Embedded maps and sets are not necessarily stable across breaking versions and should be regenerated.
 //!
