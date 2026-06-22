@@ -135,6 +135,7 @@ fn get_hit_isolated<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
     });
 }
 
+/// Repeated "miss" lookups for measuring amortized throughput.
 #[bench(types = [Phf<Ints>, Phf<ShortStr>, Phf<LongStr>], args = SIZES)]
 fn get_miss<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
     let map = build_map::<C>(n);
@@ -143,6 +144,20 @@ fn get_miss<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
         let mut acc = 0usize;
         for q in &queries {
             acc = acc.wrapping_add(usize::from(C::get(&map, q).is_none()));
+        }
+        acc
+    });
+}
+
+/// Repeated "miss" lookups with `#[inline(never)]` for measuring single-lookup latency.
+#[bench(types = [Phf<Ints>, Phf<ShortStr>, Phf<LongStr>], args = SIZES)]
+fn get_miss_isolated<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
+    let map = build_map::<C>(n);
+    let queries = C::absent(n);
+    bencher.counter(ItemsCount::new(queries.len())).bench(|| {
+        let mut acc = 0usize;
+        for q in &queries {
+            acc = acc.wrapping_add(usize::from(isolated_lookup::<C>(&map, q).is_none()));
         }
         acc
     });
