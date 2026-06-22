@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/lute", "crates/lute_core", "crates/lute_macros", "crates/codegen_test"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Kyle Chen"]
 edition = "2024"
 rust-version = "1.88"
@@ -11,8 +11,8 @@ repository = "https://github.com/astral4/lute"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-lute_core = { path = "crates/lute_core", version = "=0.1.0", default-features = false }
-lute_macros = { path = "crates/lute_macros", version = "=0.1.0" }
+lute_core = { path = "crates/lute_core", version = "=0.1.1", default-features = false }
+lute_macros = { path = "crates/lute_macros", version = "=0.1.1" }
 databake = "0.2"
 divan = "0.1"
 foldhash = { version = "0.2", default-features = false }

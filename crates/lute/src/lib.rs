@@ -72,10 +72,10 @@
 //!
 //! ```toml
 //! [dependencies]
-//! lute = { version = "0.1.0", default-features = false }
+//! lute = { version = "0.1.1", default-features = false }
 //!
 //! [build-dependencies]
-//! lute = { version = "0.1.0", features = ["codegen"] }
+//! lute = { version = "0.1.1", features = ["codegen"] }
 //! ```
 //!
 //! In `build.rs`, build the map and write it to a file in `OUT_DIR`:
