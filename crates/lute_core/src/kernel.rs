@@ -43,7 +43,7 @@ pub(crate) fn fastrange(hash: u64, len: usize) -> usize {
 
 /// The CHD bucket index for a hash.
 ///
-/// [`split`] consumes the low 32 hash bits, so the bucket must draw on a different region.
+/// `split` consumes the low 32 hash bits, so the bucket must draw on a different region.
 /// Otherwise, two keys colliding in the low 32 bits would share both a bucket and their displacement inputs,
 /// becoming impossible to separate and forcing a reseed. Taking the high 32 bits of `hash * BUCKET_MUL`
 /// keeps the bucket disjoint from `split` while still mixing in the whole hash,
@@ -56,4 +56,53 @@ pub(crate) fn bucket(hash: u64, num_buckets: usize) -> usize {
 #[inline]
 pub(crate) fn displace(f1: u16, f2: u16, d1: u16, d2: u16) -> u16 {
     f1.wrapping_mul(d1).wrapping_add(f2).wrapping_add(d2)
+}
+
+#[cfg(target_pointer_width = "64")]
+pub(crate) type FastmodMul = u64;
+#[cfg(not(target_pointer_width = "64"))]
+pub(crate) type FastmodMul = u32;
+
+/// Precomputes the multiplier `floor(2^64 / n) + 1` for `fastmod`.
+#[cfg(target_pointer_width = "64")]
+#[inline]
+pub(crate) const fn fastmod_multiplier(n: usize) -> FastmodMul {
+    if n != 0 {
+        (u64::MAX / n as u64).wrapping_add(1)
+    } else {
+        0
+    }
+}
+
+/// Precomputes the multiplier `floor(2^32 / n) + 1` for `fastmod`.
+#[cfg(not(target_pointer_width = "64"))]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "n is a table length <= MAX_LEN (u16::MAX), so it fits in u32"
+)]
+#[inline]
+pub(crate) const fn fastmod_multiplier(n: usize) -> FastmodMul {
+    if n != 0 {
+        (u32::MAX / n as u32).wrapping_add(1)
+    } else {
+        0
+    }
+}
+
+/// Computes `x % n` without division using the multiplier from `fastmod_constant`.
+#[cfg(target_pointer_width = "64")]
+#[allow(clippy::cast_possible_truncation)]
+#[inline]
+pub(crate) fn fastmod(x: u16, multiplier: FastmodMul, n: usize) -> usize {
+    let lowbits = multiplier.wrapping_mul(u64::from(x));
+    ((u128::from(lowbits) * n as u128) >> 64) as usize
+}
+
+/// Computes `x % n` without division using the multiplier from `fastmod_constant`.
+#[cfg(not(target_pointer_width = "64"))]
+#[allow(clippy::cast_possible_truncation)]
+#[inline]
+pub(crate) fn fastmod(x: u16, multiplier: FastmodMul, n: usize) -> usize {
+    let lowbits = multiplier.wrapping_mul(u32::from(x));
+    ((u64::from(lowbits) * n as u64) >> 32) as usize
 }

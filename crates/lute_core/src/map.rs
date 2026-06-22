@@ -1,4 +1,6 @@
-use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
+use crate::kernel::{
+    FastmodMul, SCAN_MAX, bucket, displace, fastmod, fastmod_multiplier, fastrange, hash, split,
+};
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 use core::borrow::Borrow;
@@ -67,6 +69,7 @@ impl<T> Default for CowSlice<T> {
 #[derive(Clone)]
 pub struct Map<K: 'static, V: 'static> {
     pub(crate) seed: u64,
+    pub(crate) fastmod_multiplier: FastmodMul,
     pub(crate) displacements: CowSlice<(u16, u16)>,
     pub(crate) entries: CowSlice<(K, V)>,
 }
@@ -82,6 +85,7 @@ impl<K, V> Default for Map<K, V> {
     fn default() -> Self {
         Self {
             seed: 0,
+            fastmod_multiplier: fastmod_multiplier(0),
             displacements: CowSlice::default(),
             entries: CowSlice::default(),
         }
@@ -102,6 +106,7 @@ impl<K, V> Map<K, V> {
     ) -> Self {
         Self {
             seed,
+            fastmod_multiplier: fastmod_multiplier(entries.len()),
             displacements: CowSlice::Borrowed(displacements),
             entries: CowSlice::Borrowed(entries),
         }
@@ -137,7 +142,8 @@ impl<K, V> Map<K, V> {
             // CHD
             let (f1, f2) = split(hash);
             let (d1, d2) = disps[bucket(hash, disps.len())];
-            displace(f1, f2, d1, d2) as usize % n
+            debug_assert_eq!(self.fastmod_multiplier, fastmod_multiplier(n));
+            fastmod(displace(f1, f2, d1, d2), self.fastmod_multiplier, n)
         };
 
         let (k, v) = &entries[index];

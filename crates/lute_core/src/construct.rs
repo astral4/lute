@@ -1,6 +1,8 @@
 //! Map and set construction.
 
-use crate::kernel::{SCAN_MAX, bucket, displace, fastrange, hash, split};
+use crate::kernel::{
+    SCAN_MAX, bucket, displace, fastmod, fastmod_multiplier, fastrange, hash, split,
+};
 use crate::map::{CowSlice, Map};
 use crate::set::Set;
 use alloc::{vec, vec::Vec};
@@ -207,6 +209,7 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     let order = order_buckets_by_size(&starts);
 
     let bound = table_len as u16;
+    let multiplier = fastmod_multiplier(table_len);
     let splits: Vec<_> = hashes.iter().map(|&h| split(h)).collect();
     // `values_to_add` only ever holds one bucket's keys at a time.
     // The largest bucket is processed first, so sizing to it avoids reallocating during the search.
@@ -238,7 +241,7 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
                 for &key in keys {
                     let key = key as usize;
                     let (f1, f2) = splits[key];
-                    let index = displace(f1, f2, d1, d2) as usize % table_len;
+                    let index = fastmod(displace(f1, f2, d1, d2), multiplier, table_len);
 
                     // Reject if the slot is taken by a placed bucket (`map`)
                     // or an earlier key of this bucket under the current displacement (`values_to_add`).
@@ -359,6 +362,7 @@ impl<K, V> Map<K, V> {
 
         Self {
             seed: state.seed,
+            fastmod_multiplier: fastmod_multiplier(entries.len()),
             displacements: CowSlice::Owned(state.displacements),
             entries: CowSlice::Owned(entries),
         }
