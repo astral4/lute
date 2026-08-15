@@ -887,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn negative_integers_use_twos_complement() {
+    fn negative_integers_twos_complement() {
         assert_eq!(int("-1i32"), (4, 0xFFFF_FFFF));
         assert_eq!(int("-128i8"), (1, 0x80));
         assert_eq!(int("-2147483648i32"), (4, 0x8000_0000));
@@ -943,7 +943,7 @@ mod tests {
     }
 
     #[test]
-    fn tuples_nest_and_are_transparent_to_references() {
+    fn nested_tuples() {
         assert_eq!(
             hash_key("(\"a\", 1u32)").unwrap(),
             HashKey::Tuple(vec![
@@ -964,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn repeat_arrays_and_parenthesized_negation() {
+    fn repeat_arrays() {
         assert_eq!(
             hash_key("[7u16; 3]").unwrap(),
             HashKey::Seq(vec![
