@@ -339,3 +339,32 @@ fn macro_matches_runtime() {
         [2u64, 3, 5, 7, 11, 13].into_iter().collect::<Set<u64>>()
     );
 }
+
+static SEVEN: i32 = 7;
+static NINE: i32 = 9;
+static BORROWED: Map<&str, &'static i32> = map! {
+    "seven" => &SEVEN,
+    "nine" => &NINE,
+};
+
+#[test]
+fn static_reference_values() {
+    assert_eq!(BORROWED.get("seven"), Some(&&7));
+    assert_eq!(BORROWED.get("nine"), Some(&&9));
+    assert_eq!(BORROWED.get("ten"), None);
+}
+
+#[test]
+fn expression_position() {
+    let numbers = map! {
+        "one" => 1u8,
+        "two" => 2,
+        "three" => 3,
+    };
+    assert_eq!(numbers.get("two"), Some(&2));
+    assert_eq!(numbers.get("four"), None);
+
+    let evens = set! { 0u16, 2u16, 4u16, 6u16 };
+    assert!(evens.contains(&4));
+    assert!(!evens.contains(&5));
+}
