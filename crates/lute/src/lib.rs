@@ -57,7 +57,7 @@
 //! # #[cfg(feature = "macros")] {
 //! use lute::{Set, set};
 //!
-//! static PRIMES: Set<u32> = set! { 2u32, 3u32, 5u32, 7u32, 11u32 };
+//! const PRIMES: Set<u32> = set! { 2u32, 3u32, 5u32, 7u32, 11u32 };
 //!
 //! assert!(PRIMES.contains(&7));
 //! assert!(!PRIMES.contains(&8));
@@ -83,19 +83,22 @@
 //! ```ignore
 //! use lute::Map;
 //! use std::env::var_os;
-//! use std::fs::write;
+//! use std::fs::File;
+//! use std::io::Write as _;
 //! use std::path::Path;
 //!
 //! fn main() {
 //!     let planets = Map::from([("Mercury", 1), ("Venus", 2), ("Earth", 3), ("Mars", 4)]);
 //!
-//!     let code = format!(
-//!         "pub static PLANETS: ::lute::Map<&'static str, i32> = {};",
-//!         planets.to_tokens()
-//!     );
-//!
 //!     let path = Path::new(&var_os("OUT_DIR").unwrap()).join("planets.rs");
-//!     write(path, code).unwrap();
+//!     let mut file = File::create(&path).unwrap();
+//!     write!(
+//!         &mut file,
+//!         "pub const PLANETS: ::lute::Map<&'static str, i32> = {};",
+//!         planets.to_tokens()
+//!     )
+//!     .unwrap();
+//!
 //!     println!("cargo:rerun-if-changed=build.rs");
 //! }
 //! ```

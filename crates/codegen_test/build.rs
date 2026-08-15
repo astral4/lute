@@ -10,12 +10,13 @@ fn main() {
     let big_map: Map<_, _> = (0..300u32).map(|i| (i, i * 3)).collect();
     let big_set: Set<_> = (0..150u16).map(|i| i * 7).collect();
 
-    let mut out = File::create(Path::new(&var_os("OUT_DIR").unwrap()).join("baked.rs")).unwrap();
-    writeln!(
-        out,
-        "const SMALL_MAP: ::lute::Map<&'static str, i32> = {};\n\
-         const SMALL_SET: ::lute::Set<u32> = {};\n\
-         const BIG_MAP: ::lute::Map<u32, u32> = {};\n\
+    let path = Path::new(&var_os("OUT_DIR").unwrap()).join("baked.rs");
+    let mut file = File::create(&path).unwrap();
+    write!(
+        &mut file,
+        "const SMALL_MAP: ::lute::Map<&'static str, i32> = {};\
+         const SMALL_SET: ::lute::Set<u32> = {};\
+         const BIG_MAP: ::lute::Map<u32, u32> = {};\
          const BIG_SET: ::lute::Set<u16> = {};",
         small_map.to_tokens(),
         small_set.to_tokens(),
