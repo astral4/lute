@@ -361,8 +361,8 @@ mod test {
         assert!(map.is_empty());
 
         for key in Key::MIN..=Key::MAX {
-            assert!(map.get_entry(&key).is_none());
-            assert!(map.get(&key).is_none());
+            assert_eq!(map.get_entry(&key), None);
+            assert_eq!(map.get(&key), None);
             assert!(!map.contains_key(&key));
         }
     }
@@ -375,8 +375,8 @@ mod test {
         assert!(!map.is_empty());
 
         for key in Key::MIN..Key::MAX {
-            assert!(map.get_entry(&key).is_none());
-            assert!(map.get(&key).is_none());
+            assert_eq!(map.get_entry(&key), None);
+            assert_eq!(map.get(&key), None);
             assert!(!map.contains_key(&key));
         }
 
@@ -398,8 +398,8 @@ mod test {
 
         for key in Key::MIN..=Key::MAX {
             if !keys.contains(&key) {
-                assert!(map.get_entry(&key).is_none());
-                assert!(map.get(&key).is_none());
+                assert_eq!(map.get_entry(&key), None);
+                assert_eq!(map.get(&key), None);
                 assert!(!map.contains_key(&key));
             }
         }

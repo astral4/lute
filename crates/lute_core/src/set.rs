@@ -148,7 +148,7 @@ mod test {
         assert!(set.is_empty());
 
         for value in Value::MIN..=Value::MAX {
-            assert!(set.get(&value).is_none());
+            assert_eq!(set.get(&value), None);
             assert!(!set.contains(&value));
         }
     }
@@ -161,7 +161,7 @@ mod test {
         assert!(!set.is_empty());
 
         for value in Value::MIN..Value::MAX {
-            assert!(set.get(&value).is_none());
+            assert_eq!(set.get(&value), None);
             assert!(!set.contains(&value));
         }
 
@@ -184,7 +184,7 @@ mod test {
                 assert_eq!(set.get(&value), Some(&value));
                 assert!(set.contains(&value));
             } else {
-                assert!(set.get(&value).is_none());
+                assert_eq!(set.get(&value), None);
                 assert!(!set.contains(&value));
             }
         }
