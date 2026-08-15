@@ -28,8 +28,12 @@ macros = ["dep:lute_macros"]
 
 [dev-dependencies]
 divan.workspace = true
+foldhash.workspace = true
+hashbrown = { workspace = true, features = ["inline-more"] }
 phf.workspace = true
 phf_generator.workspace = true
+rand_core.workspace = true
+rand_xoshiro.workspace = true
 trybuild.workspace = true
 
 [[bench]]
@@ -41,6 +45,10 @@ required-features = ["construct"]
 name = "phf"
 harness = false
 required-features = ["construct"]
+
+[[bench]]
+name = "hashbrown"
+harness = false
 
 [lints]
 workspace = true
