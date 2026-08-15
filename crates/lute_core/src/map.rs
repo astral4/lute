@@ -483,6 +483,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     #[should_panic = "could not find a perfect hash function"]
     fn panic_inconsistent_hash_eq() {
         #[derive(PartialEq, Eq)]

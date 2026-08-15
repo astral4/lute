@@ -512,6 +512,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn strategies_across_sizes() {
         // 49152 and 50000 land in the `2^15..2^16` non-power-of-two range that previously made CHD
         // construction thrash; keeping them here exercises construct+lookup correctness in that zone.
@@ -567,9 +568,10 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn construct_at_max_len() {
         let n = u32::try_from(MAX_LEN).expect("MAX_LEN fits in u32");
-        let map: Map<u32, u32> = (0..n).map(|k| (k, k)).collect();
+        let map: Map<_, _> = (0..n).map(|k| (k, k)).collect();
 
         assert_eq!(map.len(), MAX_LEN);
         for k in 0..n {
@@ -582,6 +584,6 @@ mod test {
     #[should_panic = "cannot have more than"]
     fn construct_above_max_len_panics() {
         let n = u32::try_from(MAX_LEN).expect("MAX_LEN fits in u32");
-        drop((0..=n).map(|k| (k, ())).collect::<Map<u32, ()>>());
+        drop((0..=n).map(|k| (k, ())).collect::<Map<_, _>>());
     }
 }
