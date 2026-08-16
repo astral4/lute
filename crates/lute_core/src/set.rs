@@ -12,21 +12,6 @@ pub struct Set<T: 'static> {
     pub(crate) map: Map<T, ()>,
 }
 
-impl<T: Debug> Debug for Set<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.debug_set().entries(self.entries()).finish()
-    }
-}
-
-impl<T> Default for Set<T> {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            map: Map::default(),
-        }
-    }
-}
-
 impl<T> Set<T> {
     /// Reconstructs a `Set` from a baked [`Map`].
     ///
@@ -77,6 +62,21 @@ impl<T> Set<T> {
     pub fn entries(&self) -> SetEntries<'_, T> {
         SetEntries {
             inner: self.map.keys(),
+        }
+    }
+}
+
+impl<T: Debug> Debug for Set<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_set().entries(self.entries()).finish()
+    }
+}
+
+impl<T> Default for Set<T> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            map: Map::default(),
         }
     }
 }
