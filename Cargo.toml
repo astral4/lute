@@ -54,5 +54,6 @@ unused_qualifications = "deny"
 redundant_explicit_links = "allow"
 
 [workspace.lints.clippy]
+doc_markdown = { level = "allow", priority = 1 }
 module_name_repetitions = { level = "allow", priority = 1 }
 pedantic = "warn"
