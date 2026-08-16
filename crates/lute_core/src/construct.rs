@@ -29,6 +29,8 @@ const SEED_BUDGET: usize = 1 << 8;
 #[doc(hidden)]
 pub const MAX_LEN: usize = u16::MAX as usize;
 
+const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
+
 /// A perfect hash function construction result.
 #[doc(hidden)]
 #[derive(Debug)]
@@ -140,7 +142,11 @@ fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
         starts[b + 1] - starts[b]
     };
 
-    let num_buckets = u16::try_from(starts.len() - 1).expect("num_buckets fits in u16");
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`num_buckets` is at most `MAX_LEN.div_ceil(LAMBDA).next_power_of_two()` = 16384"
+    )]
+    let num_buckets = (starts.len() - 1) as u16;
 
     // Count buckets per size, then turn those counts into each size's starting output position in place.
     let max = usize::from((0..num_buckets).map(size).max().unwrap_or(0));
@@ -195,7 +201,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<usize
     let mut cursor = starts.clone();
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "`i` indexes `hashes`, so it is less than `n`, which is <= `u16::MAX`"
+        reason = "`i` indexes `hashes`, so `i` < `n` <= `u16::MAX`"
     )]
     for (i, &b) in key_buckets.iter().enumerate() {
         let b = usize::from(b);
@@ -273,11 +279,13 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<usize
     let mut free = (0..n).filter(|&slot| slot_entries[slot] == EMPTY);
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "`hole` is a free slot below `n`, which is <= `u16::MAX`"
+        reason = "`hole` is a free slot below `n` <= `u16::MAX`"
     )]
     for overflow in n..slots {
         if slot_entries[overflow] != EMPTY {
-            let hole = free.next().expect("a free slot per occupied overflow slot");
+            // SAFETY: The pilot search places all `n` keys in distinct slots or returns `None` before the loop.
+            // If `k` overflow slots are occupied, then `n − k` slots below `n` are occupied, leaving exactly `k` free.
+            let hole = unsafe { free.next().unwrap_unchecked() };
             remap[overflow - n] = hole as u16;
             indices[hole] = usize::from(slot_entries[overflow]);
         }
