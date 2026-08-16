@@ -24,7 +24,7 @@ proc-macro2 = "1"
 quote = "1"
 rand_core = { version = "0.10", default-features = false }
 rand_xoshiro = { version = "0.8", default-features = false }
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 trybuild = "1"
 
 [workspace.lints.rust]
