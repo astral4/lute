@@ -546,11 +546,6 @@ fn crate_path() -> TokenStream2 {
     }
 }
 
-/// Renders a displacement table as array element tokens.
-fn displacement_tokens(displacements: &[(u16, u16)]) -> impl Iterator<Item = TokenStream2> + '_ {
-    displacements.iter().map(|&(d1, d2)| quote!((#d1, #d2)))
-}
-
 struct MapEntry {
     key: Expr,
     value: Expr,
@@ -709,15 +704,15 @@ fn build_output(
 ) -> SynResult<TokenStream2> {
     let MapState {
         seed,
-        displacements,
+        pilots,
+        remap,
         indices,
     } = compute_parts(keys)?;
     let krate = crate_path();
-    let displacements = displacement_tokens(&displacements);
     let baked = indices.iter().map(|&i| bake_entry(i));
 
     let table = quote! {
-        #krate::Map::from_baked_parts(#seed, &[#(#displacements),*], &[#(#baked),*])
+        #krate::Map::from_baked_parts(#seed, &[#(#pilots),*], &[#(#remap),*], &[#(#baked),*])
     };
 
     Ok(with_portability_guard(wrap(table, &krate), keys))

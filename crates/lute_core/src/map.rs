@@ -1,5 +1,6 @@
 use crate::kernel::{
-    SCAN_MAX, bucket, displace, fastmod, fastmod_multiplier, fastrange, hash, split,
+    DIRECT_MAX, SCAN_MAX, bucket, bucket_count, fastrange, hash, pilot_slot, shared_seed,
+    slot_count,
 };
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
@@ -9,6 +10,7 @@ use core::hash::Hash;
 use core::iter::FusedIterator;
 use core::ops::{Deref, Index};
 use core::slice::Iter;
+use foldhash::SharedSeed;
 
 pub(crate) enum CowSlice<T: 'static> {
     Borrowed(&'static [T]),
@@ -69,8 +71,12 @@ impl<T> Default for CowSlice<T> {
 #[derive(Clone)]
 pub struct Map<K: 'static, V: 'static> {
     pub(crate) seed: u64,
-    pub(crate) fastmod_multiplier: u64,
-    pub(crate) displacements: CowSlice<(u16, u16)>,
+    /// The expansion of `seed` used for hashing.
+    pub(crate) shared_seed: SharedSeed,
+    /// One pilot per bucket. This is empty for the scan and direct strategies.
+    pub(crate) pilots: CowSlice<u16>,
+    /// Entry indices for the overflow slots `entries.len()..(entries.len() + remap.len())`. Every value is a valid entry index.
+    pub(crate) remap: CowSlice<u16>,
     pub(crate) entries: CowSlice<(K, V)>,
 }
 
@@ -85,11 +91,24 @@ impl<K, V> Default for Map<K, V> {
     fn default() -> Self {
         Self {
             seed: 0,
-            fastmod_multiplier: fastmod_multiplier(0),
-            displacements: CowSlice::default(),
+            shared_seed: shared_seed(0),
+            pilots: CowSlice::default(),
+            remap: CowSlice::default(),
             entries: CowSlice::default(),
         }
     }
+}
+
+/// Returns whether every remap value is a valid index into `entry_count` entries.
+const fn remap_targets_valid(remap: &[u16], entry_count: usize) -> bool {
+    let mut i = 0;
+    while i < remap.len() {
+        if remap[i] as usize >= entry_count {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 impl<K, V> Map<K, V> {
@@ -101,13 +120,37 @@ impl<K, V> Map<K, V> {
     #[must_use]
     pub const fn from_baked_parts(
         seed: u64,
-        displacements: &'static [(u16, u16)],
+        pilots: &'static [u16],
+        remap: &'static [u16],
         entries: &'static [(K, V)],
     ) -> Self {
+        assert!(
+            remap_targets_valid(remap, entries.len()),
+            "remap value out of range"
+        );
+
+        if pilots.is_empty() {
+            assert!(remap.is_empty(), "remap table without a pilot table");
+            assert!(
+                entries.len() <= DIRECT_MAX,
+                "pilot table missing for an entry count that requires one"
+            );
+        } else {
+            assert!(
+                pilots.len() == bucket_count(entries.len()),
+                "pilot table length must match the bucket count for the entry count"
+            );
+            assert!(
+                remap.len() == slot_count(entries.len()) - entries.len(),
+                "remap length must match the slot slack for the entry count"
+            );
+        }
+
         Self {
             seed,
-            fastmod_multiplier: fastmod_multiplier(entries.len()),
-            displacements: CowSlice::Borrowed(displacements),
+            shared_seed: shared_seed(seed),
+            pilots: CowSlice::Borrowed(pilots),
+            remap: CowSlice::Borrowed(remap),
             entries: CowSlice::Borrowed(entries),
         }
     }
@@ -119,7 +162,7 @@ impl<K, V> Map<K, V> {
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
-        let entries = &self.entries;
+        let entries: &[(K, V)] = &self.entries;
         let n = entries.len();
 
         if n <= SCAN_MAX {
@@ -130,27 +173,35 @@ impl<K, V> Map<K, V> {
                 .map(|(k, v)| (k, v));
         }
 
-        let disps = &self.displacements;
-        let hash = hash(key, self.seed);
+        let pilots: &[u16] = &self.pilots;
+        let hash = hash(key, self.seed, &self.shared_seed);
 
-        // CHD always produces at least one bucket (hence a non-empty displacement table), while the direct strategy produces none.
-        // The hash is minimal and perfect, so the number of slots equals the entry count `n`.
-        let index = if disps.is_empty() {
-            // Direct strategy
+        // Pilot construction always produces at least one bucket (hence a non-empty pilot table), while the direct strategy produces none.
+        let index = if pilots.is_empty() {
+            // The direct strategy. The hash is minimal and perfect, so the slot is the entry index.
             fastrange(hash, n)
         } else {
-            // CHD
-            let (f1, f2) = split(hash);
-            let (d1, d2) = disps[bucket(hash, disps.len())];
-            debug_assert_eq!(self.fastmod_multiplier, fastmod_multiplier(n));
-            fastmod(
-                displace(f1, f2, u32::from(d1), u32::from(d2)),
-                self.fastmod_multiplier,
-                n,
-            )
+            // The pilot strategy. We bucket -> pilot -> slot over `n + remap.len()` slack slots,
+            // with overflow slots remapped back into `0..n` to keep the entries dense.
+            let remap: &[u16] = &self.remap;
+
+            let slot = {
+                // SAFETY: `kernel::bucket` returns a value less than `pilots.len()` for any hash because `pilots.len()`
+                // is a power of 2 and at least 2. Construction produces exactly `kernel::bucket_count(n)` pilots.
+                let pilot = *unsafe { pilots.get_unchecked(bucket(hash, pilots.len())) };
+                pilot_slot(hash, pilot, n + remap.len())
+            };
+
+            if slot < n {
+                slot
+            } else {
+                usize::from(*unsafe { remap.get_unchecked(slot - n) })
+            }
         };
 
-        let (k, v) = &entries[index];
+        // SAFETY: `index` is a valid entry index. `kernel::fastrange` bounds the direct strategy,
+        // non-remapped slots satisfy `slot < n`, and remap values are validated at construction.
+        let (k, v) = unsafe { entries.get_unchecked(index) };
 
         if k.borrow() == key {
             Some((k, v))
@@ -340,6 +391,46 @@ impl<'a, K, V> IntoIterator for &'a Map<K, V> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.entries()
+    }
+}
+
+#[cfg(test)]
+mod baked_parts_test {
+    use super::Map;
+
+    #[test]
+    #[should_panic = "remap value out of range"]
+    fn remap_value_out_of_range() {
+        drop(Map::from_baked_parts(
+            0,
+            &[0, 0],
+            &[4],
+            &[(0u16, 0u16), (1, 0), (2, 0), (3, 0)],
+        ));
+    }
+
+    #[test]
+    #[should_panic = "pilot table length must match the bucket count"]
+    fn pilot_length_mismatch() {
+        drop(Map::from_baked_parts(0, &[0; 4], &[0], &[(0u16, 0u16); 20]));
+    }
+
+    #[test]
+    #[should_panic = "remap table without a pilot table"]
+    fn remap_without_pilots() {
+        drop(Map::from_baked_parts(0, &[], &[0], &[(0u16, 0u16); 4]));
+    }
+
+    #[test]
+    #[should_panic = "pilot table missing for an entry count that requires one"]
+    fn pilots_missing() {
+        drop(Map::from_baked_parts(0, &[], &[], &[(0u16, 0u16); 20]));
+    }
+
+    #[test]
+    #[should_panic = "remap length must match the slot slack"]
+    fn remap_length_mismatch() {
+        drop(Map::from_baked_parts(0, &[0; 8], &[], &[(0u16, 0u16); 20]));
     }
 }
 

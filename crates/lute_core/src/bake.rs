@@ -28,13 +28,15 @@ where
     fn bake(&self, ctx: &CrateEnv) -> TokenStream {
         let krate = crate_path(ctx);
         let seed = self.seed.bake(ctx);
-        let displacements = self.displacements.iter().map(|d| d.bake(ctx));
+        let pilots = self.pilots.iter().map(|p| p.bake(ctx));
+        let remap = self.remap.iter().map(|r| r.bake(ctx));
         let entries = self.entries.iter().map(|e| e.bake(ctx));
 
         quote! {
             #krate::Map::from_baked_parts(
                 #seed,
-                &[#(#displacements),*],
+                &[#(#pilots),*],
+                &[#(#remap),*],
                 &[#(#entries),*],
             )
         }
