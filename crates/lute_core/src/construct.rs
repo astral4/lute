@@ -32,7 +32,7 @@ const DIRECT_BUDGET: usize = 1 << 16;
 /// Number of seeds tried for the CHD strategy before giving up. Valid key sets should be hashed perfectly
 /// within the first few seeds, so exhausting this budget probably means no perfect hash exists.
 /// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
-const CHD_BUDGET: usize = 1 << 8;
+const SEED_BUDGET: usize = 1 << 8;
 
 /// The maximum number of entries.
 #[doc(hidden)]
@@ -116,7 +116,7 @@ where
     let mut hashes: Vec<_> = Vec::with_capacity(n);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
 
-    for _ in 0..CHD_BUDGET {
+    for _ in 0..SEED_BUDGET {
         let seed = rng.next_u64();
         hashes.clear();
         hashes.extend(entries.iter().map(|entry| hash(entry, seed)));
@@ -138,11 +138,15 @@ where
 /// Equivalent to `sort_unstable_by_key(|&b| (Reverse(size(b)), b))`,
 fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
     // `starts` is the CSR prefix sum, so bucket `b`'s size is  `starts[b + 1] - starts[b]`.
+    let size = |b| {
+        let b = usize::from(b);
+        starts[b + 1] - starts[b]
+    };
+
     let num_buckets = u16::try_from(starts.len() - 1).expect("num_buckets fits in u16");
-    let size = |b: u16| starts[usize::from(b) + 1] - starts[usize::from(b)];
-    let max = usize::from((0..num_buckets).map(size).max().unwrap_or(0));
 
     // Count buckets per size, then turn those counts into each size's starting output slot in place.
+    let max = usize::from((0..num_buckets).map(size).max().unwrap_or(0));
     let mut slots = vec![0u16; max + 1];
     for b in 0..num_buckets {
         slots[usize::from(size(b))] += 1;
@@ -185,7 +189,8 @@ fn try_chd(hashes: &[u64], table_len: usize) -> Option<ChdTables> {
     // Bucket keys with a CSR layout: one packed key array plus offsets instead of a `Vec<usize>` per bucket.
     // `u16` suffices since every index, count, and offset is at most `table_len`, which is itself at most `u16::MAX`.
     // After the prefix sum, `starts[b]..starts[b + 1]` is bucket `b`'s slice.
-    let buckets: Vec<u16> = hashes
+    #[expect(clippy::cast_possible_truncation)]
+    let buckets: Vec<_> = hashes
         .iter()
         .map(|&h| bucket(h, num_buckets) as u16)
         .collect();
@@ -275,8 +280,7 @@ fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
     !items.iter().all(|item| set.insert(item))
 }
 
-/// Permutes `data` such that `data[indices[i]]` is moved to `data[i]`.
-/// Clobbers `indices` as scratch space.
+/// Permutes `data` such that `data[indices[i]]` is moved to `data[i]`. Clobbers `indices` as scratch space.
 ///
 /// # Safety
 ///
@@ -318,8 +322,7 @@ fn is_permutation(indices: &[usize]) -> bool {
         .all(|&i| i < n && !replace(&mut seen[i], true))
 }
 
-/// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`],
-/// or `None` if no perfect hash function can be found.
+/// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`], or `None` if no perfect hash function can be found.
 #[doc(hidden)]
 #[must_use]
 pub fn construct<T>(keys: &[T]) -> Option<MapState>
@@ -354,7 +357,7 @@ impl<K, V> Map<K, V> {
 
         let mut state = generate(&keys).unwrap_or_else(|| {
             panic!(
-                "could not find a perfect hash function for the given keys after {CHD_BUDGET} attempts; \
+                "could not find a perfect hash function for the given keys after {SEED_BUDGET} attempts; \
                  two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
             )
         });
@@ -520,7 +523,7 @@ mod test {
         let (mut saw_scan, mut saw_direct, mut saw_chd) = (false, false, false);
 
         for n in sizes {
-            // `2_654_435_769` is `floor(2^32 / phi)`; its multiples scatter `0..n` into distinct keys.
+            // `2_654_435_769` is the closest odd number to `2^32 / phi`; its multiples evenly scatter `0..n` into distinct keys.
             let entries: Vec<_> = (0..n).map(|k| (k.wrapping_mul(2_654_435_769), k)).collect();
             let present: HashSet<_> = entries.iter().map(|&(k, _)| k).collect();
 
