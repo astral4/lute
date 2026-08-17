@@ -227,6 +227,7 @@ mod test {
         assert_eq!(set.get("gamma"), None);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[should_panic = "duplicate key present"]
     fn panic_duplicate_value() {

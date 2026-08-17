@@ -741,6 +741,7 @@ mod test {
         assert_eq!(map.get("gamma"), None);
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     #[should_panic = "duplicate key present"]
     fn panic_duplicate_key() {
@@ -754,8 +755,8 @@ mod test {
         let _ = map[&0];
     }
 
-    #[test]
     #[cfg_attr(miri, ignore)]
+    #[test]
     #[should_panic = "could not find a perfect hash function"]
     fn panic_inconsistent_hash_eq() {
         #[derive(PartialEq, Eq)]
