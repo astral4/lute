@@ -22,6 +22,9 @@ mod bake;
 pub use map::{Map, MapEntries, MapKeys, MapValues};
 pub use set::{Set, SetEntries};
 
+#[doc(hidden)]
+pub use kernel::MAX_LEN;
+
 #[cfg(feature = "construct")]
 #[doc(hidden)]
-pub use construct::{MAX_LEN, MapState, construct};
+pub use construct::{MapState, construct};

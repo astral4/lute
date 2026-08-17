@@ -4,6 +4,10 @@ use core::hash::{Hash, Hasher};
 use foldhash::SharedSeed;
 use foldhash::fast::FoldHasher;
 
+/// The maximum number of entries.
+#[doc(hidden)]
+pub const MAX_LEN: usize = u16::MAX as usize;
+
 /// Maps with at most this many entries use linear scanning for lookups; no hashing or auxiliary data involved.
 pub(crate) const SCAN_MAX: usize = 1;
 
@@ -13,6 +17,7 @@ pub(crate) const DIRECT_MAX: usize = 10;
 
 const _: () = assert!(SCAN_MAX < DIRECT_MAX);
 const _: () = assert!(DIRECT_MAX <= usize::BITS as usize);
+const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
 
 /// The closest odd number to `2^64 / phi`. Used because its bits are well-dispersed. See also: splitmix64 and Fibonacci hashing.
 const BUCKET_MUL: u64 = 11_400_714_819_323_198_485;

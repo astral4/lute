@@ -1,7 +1,7 @@
 //! Map and set construction.
 
 use crate::kernel::{
-    DIRECT_MAX, SCAN_MAX, bucket, bucket_count, fastrange, hash, pilot_slot, shared_seed,
+    DIRECT_MAX, MAX_LEN, SCAN_MAX, bucket, bucket_count, fastrange, hash, pilot_slot, shared_seed,
     slot_count,
 };
 use crate::map::{CowSlice, Map};
@@ -24,12 +24,6 @@ const DIRECT_BUDGET: usize = 1 << 16;
 /// within the first few seeds, so exhausting this budget probably means no perfect hash exists.
 /// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
 const SEED_BUDGET: usize = 1 << 8;
-
-/// The maximum number of entries.
-#[doc(hidden)]
-pub const MAX_LEN: usize = u16::MAX as usize;
-
-const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
 
 /// A perfect hash function construction result.
 #[doc(hidden)]
