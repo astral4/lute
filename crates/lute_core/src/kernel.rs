@@ -96,9 +96,16 @@ fn slot_input(hash: u64) -> u32 {
     (hash >> 32) as u32
 }
 
+/// Returns how much [`pilot_mix`] advances when the pilot goes up by one.
+#[cfg(feature = "construct")]
+#[inline]
+pub(crate) fn pilot_step(hash: u64) -> u32 {
+    slot_input(hash)
+}
+
 /// Returns the value to be reduced by [`pilot_slot`].
 ///
-/// This is affine in the pilot; i.e. `pilot_mix(h, p + d) == pilot_mix(h, p) + d * slot_input(h)` for `p + d <= u16::MAX`.
+/// This is affine in the pilot; i.e. `pilot_mix(h, p + d) == pilot_mix(h, p) + d * pilot_step(h)` for `p + d <= u16::MAX`.
 #[inline]
 pub(crate) fn pilot_mix(hash: u64, pilot: u16) -> u32 {
     slot_input(hash).wrapping_mul(PILOT_MUL.wrapping_add(u32::from(pilot)))
