@@ -708,7 +708,7 @@ fn build_output(
         indices,
     } = compute_parts(keys)?;
     let krate = crate_path();
-    let baked = indices.iter().map(|&i| bake_entry(i));
+    let baked = indices.iter().map(|&i| bake_entry(i as usize));
 
     let table = quote! {
         #krate::Map::from_baked_parts(#seed, &[#(#pilots),*], &[#(#remap),*], &[#(#baked),*])

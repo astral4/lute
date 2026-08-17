@@ -36,7 +36,7 @@ pub struct MapState {
     /// The overflow-slot remap table.
     pub remap: Vec<u16>,
     /// For each final position, the index of the caller's entry that belongs there. This is a permutation of `0..len`.
-    pub indices: Vec<usize>,
+    pub indices: Vec<u16>,
 }
 
 #[inline]
@@ -47,11 +47,17 @@ where
     let n = entries.len();
 
     if n <= SCAN_MAX {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "`n` is at most `SCAN_MAX`"
+        )]
+        let indices = (0..n).map(|i| i as u16).collect();
+
         Some(MapState {
             seed: 0,
             pilots: Vec::new(),
             remap: Vec::new(),
-            indices: (0..n).collect(),
+            indices,
         })
     } else if n <= DIRECT_MAX
         && let Some(state) = generate_direct(entries, n)
@@ -69,7 +75,7 @@ where
     T: Hash,
 {
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
-    let mut slot_entries = vec![0usize; n];
+    let mut slot_entries = vec![0u16; n];
 
     'seeds: for _ in 0..DIRECT_BUDGET {
         let seed = rng.next_u64();
@@ -77,6 +83,10 @@ where
         // Bit `s` marks slot `s` being taken on this attempt.
         let mut taken = 0usize;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "`i` indexes at most `DIRECT_MAX` entries"
+        )]
         for (i, entry) in entries.iter().enumerate() {
             let slot = fastrange(hash(entry, seed, &shared), n);
             let bit = 1 << slot;
@@ -84,7 +94,7 @@ where
                 continue 'seeds;
             }
             taken |= bit;
-            slot_entries[slot] = i;
+            slot_entries[slot] = i as u16;
         }
 
         return Some(MapState {
@@ -164,7 +174,7 @@ fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
 }
 
 #[inline]
-fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<usize>)> {
+fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)> {
     // Sentinel marking a free slot. Real entry indices are less than `n`, which is at most `u16::MAX`, so `u16::MAX` is never an index.
     const EMPTY: u16 = u16::MAX;
 
@@ -268,7 +278,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<usize
 
     // Compact the slot table into dense entry indices. A slot below `n` is its own entry index.
     // Each occupied overflow slot is remapped to a free slot below `n`.
-    let mut indices: Vec<_> = slot_entries[..n].iter().map(|&e| usize::from(e)).collect();
+    let mut indices = slot_entries[..n].to_vec();
     let mut remap = vec![0u16; slots - n];
     let mut free = (0..n).filter(|&slot| slot_entries[slot] == EMPTY);
     #[expect(
@@ -281,7 +291,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<usize
             // If `k` overflow slots are occupied, then `n − k` slots below `n` are occupied, leaving exactly `k` free.
             let hole = unsafe { free.next().unwrap_unchecked() };
             remap[overflow - n] = hole as u16;
-            indices[hole] = usize::from(slot_entries[overflow]);
+            indices[hole] = slot_entries[overflow];
         }
         // Unoccupied overflow slots keep the filler value of 0. This is fine because a present key can't land on them
         // and a missing key that does is rejected by the final key comparison.
@@ -296,46 +306,39 @@ fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
     !items.iter().all(|item| set.insert(item))
 }
 
-/// Permutes `data` such that `data[indices[i]]` is moved to `data[i]`. Clobbers `indices` as scratch space.
+/// Returns a vector whose `i`-th element is `data[indices[i]]`.
 ///
 /// # Safety
 ///
 /// `indices` must be a permutation of `0..data.len()`.
 #[inline]
-unsafe fn apply_permutation<T>(data: &mut [T], indices: &mut [usize]) {
+unsafe fn gather<T>(data: Vec<T>, indices: &[u16]) -> Vec<T> {
     debug_assert_eq!(data.len(), indices.len());
     debug_assert!(is_permutation(indices));
 
-    for start in 0..data.len() {
-        unsafe {
-            if *indices.get_unchecked(start) == start {
-                continue;
-            }
+    let mut out: Vec<T> = Vec::with_capacity(indices.len());
 
-            let tmp = read(data.get_unchecked(start));
-            let mut i = start;
-            loop {
-                let src = *indices.get_unchecked(i);
-                *indices.get_unchecked_mut(i) = i;
-                if src == start {
-                    write(data.get_unchecked_mut(i), tmp);
-                    break;
-                }
-                let moved = read(data.get_unchecked(src));
-                write(data.get_unchecked_mut(i), moved);
-                i = src;
-            }
-        }
+    let src = data.as_ptr();
+    let dst = out.as_mut_ptr();
+    for (i, &from) in indices.iter().enumerate() {
+        unsafe { write(dst.add(i), read(src.add(from as usize))) };
     }
+    unsafe { out.set_len(indices.len()) };
+    // Every element was moved into `out`, so the source must not drop them.
+    let mut data = data;
+    unsafe { data.set_len(0) };
+
+    out
 }
 
-fn is_permutation(indices: &[usize]) -> bool {
+fn is_permutation(indices: &[u16]) -> bool {
     let n = indices.len();
     let mut seen = vec![false; n];
 
-    indices
-        .iter()
-        .all(|&i| i < n && !replace(&mut seen[i], true))
+    indices.iter().all(|&i| {
+        let i = i as usize;
+        i < n && !replace(&mut seen[i], true)
+    })
 }
 
 /// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`], or `None` if no perfect hash function can be found.
@@ -371,19 +374,16 @@ impl<K, V> Map<K, V> {
 
         assert!(!has_duplicates(&keys), "duplicate key present");
 
-        let mut state = generate(&keys).unwrap_or_else(|| {
+        let state = generate(&keys).unwrap_or_else(|| {
             panic!(
                 "could not find a perfect hash function for the given keys after {SEED_BUDGET} attempts; \
                  two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
             )
         });
 
-        let mut entries = entries;
         // SAFETY: `state.indices` is a permutation of `0..entries.len()`. Every strategy places each of the `n` keys
         // in exactly one slot, and the pilot strategy pairs each occupied overflow slot with a distinct free slot below `n`.
-        unsafe {
-            apply_permutation(&mut entries, &mut state.indices);
-        }
+        let entries = unsafe { gather(entries, &state.indices) };
 
         Self {
             seed: state.seed,
@@ -485,21 +485,18 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{DIRECT_MAX, MAX_LEN, apply_permutation, order_buckets_by_size};
+    use super::{DIRECT_MAX, MAX_LEN, gather, order_buckets_by_size};
     use crate::kernel::{SCAN_MAX, slot_count};
     use crate::map::Map;
     use std::cmp::Reverse;
     use std::collections::HashSet;
 
     #[test]
-    fn apply_permutation_gather() {
-        let mut data = ["a", "b", "c", "d", "e", "f"].map(String::from).to_vec();
-        let mut indices = vec![2, 0, 1, 3, 5, 4];
-
-        // SAFETY: `indices` is a permutation of `0..data.len()`.
-        unsafe { apply_permutation(&mut data, &mut indices) };
-
-        assert_eq!(data, ["c", "a", "b", "d", "f", "e"]);
+    fn gather_permutation() {
+        let data = ["a", "b", "c", "d", "e", "f"].map(String::from).to_vec();
+        // SAFETY: The indices are a permutation of `0..data.len()`.
+        let gathered = unsafe { gather(data, &[2, 0, 1, 3, 5, 4]) };
+        assert_eq!(gathered, ["c", "a", "b", "d", "f", "e"]);
     }
 
     #[test]
