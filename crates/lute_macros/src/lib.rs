@@ -741,7 +741,7 @@ fn expand_set(input: SetInput) -> SynResult<TokenStream2> {
             let element = &elements[i];
             quote!((#element, ()))
         },
-        |table, krate| quote! { #krate::Set::from_baked_map(#table) },
+        |table, krate| quote!(#krate::Set::from_baked_map(#table)),
     )
 }
 

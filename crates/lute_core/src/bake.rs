@@ -16,7 +16,7 @@ fn crate_path(ctx: &CrateEnv) -> TokenStream {
     };
     ctx.insert(name);
     let path: TokenStream = name.parse().unwrap();
-    quote! { ::#path }
+    quote!(::#path)
 }
 
 #[cfg(feature = "codegen")]
@@ -63,9 +63,7 @@ impl<T: Bake> Bake for Set<T> {
         let krate = crate_path(ctx);
         let map = self.map.bake(ctx);
 
-        quote! {
-            #krate::Set::from_baked_map(#map)
-        }
+        quote!(#krate::Set::from_baked_map(#map))
     }
 }
 
