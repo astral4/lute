@@ -14,10 +14,10 @@ fn main() {
     let mut file = File::create(&path).unwrap();
     write!(
         &mut file,
-        "const SMALL_MAP: ::lute::Map<&'static str, i32> = {};\
-         const SMALL_SET: ::lute::Set<u32> = {};\
-         const BIG_MAP: ::lute::Map<u32, u32> = {};\
-         const BIG_SET: ::lute::Set<u16> = {};",
+        "pub const SMALL_MAP: ::lute::Map<&'static str, i32> = {};\
+         pub const SMALL_SET: ::lute::Set<u32> = {};\
+         pub const BIG_MAP: ::lute::Map<u32, u32> = {};\
+         pub const BIG_SET: ::lute::Set<u16> = {};",
         small_map.to_tokens(),
         small_set.to_tokens(),
         big_map.to_tokens(),
