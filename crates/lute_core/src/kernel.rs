@@ -19,14 +19,11 @@ const _: () = assert!(SCAN_MAX < DIRECT_MAX);
 const _: () = assert!(DIRECT_MAX <= usize::BITS as usize);
 const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
 
-/// The closest odd number to `2^64 / phi`. Used because its bits are well-dispersed. See also: splitmix64 and Fibonacci hashing.
-const BUCKET_MUL: u64 = 11_400_714_819_323_198_485;
-
-/// The closest odd number to `2^64 / pi`. Used because its bits are well-dispersed. See also: FxHash, PTHash, and PtrHash.
-const PILOT_MUL: u64 = 5_871_781_006_564_002_453;
-
 /// The average number of keys per bucket in the pilot strategy. Higher = faster construction but more space usage.
 const LAMBDA: usize = 4;
+
+/// The closest odd number to `2^32 / pi`. Used because its bits are well-dispersed. See also: FxHash, PTHash, and PtrHash.
+const PILOT_MUL: u32 = 1_367_130_551;
 
 /// Expands a map's seed into the [`SharedSeed`] used for hashing.
 #[inline]
@@ -44,43 +41,14 @@ where
     hasher.finish()
 }
 
-/// Reduces a 64-bit hash into `[0, len)` without division using its low 32 bits, which `foldhash` mixes best.
+/// Reduces a 64-bit hash into `[0, len)` without division using its low 32 bits.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "the result is < `len`, so it fits `usize`"
+    reason = "the reduction only consumes the low 32 bits"
 )]
 #[inline]
 pub(crate) fn fastrange(hash: u64, len: usize) -> usize {
-    ((u64::from(hash as u32) * len as u64) >> 32) as usize
-}
-
-/// Returns the bucket index for a hash.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "the shift leaves at most `num_buckets.trailing_zeros()` bits, so the result fits `usize`"
-)]
-#[inline]
-pub(crate) fn bucket(hash: u64, num_buckets: usize) -> usize {
-    debug_assert!(
-        num_buckets >= 2 && num_buckets.is_power_of_two(),
-        "bucket selection requires a power-of-two bucket count"
-    );
-    // `num_buckets` is a power of 2 and at least 2, so the scrambled hash's top bits select the bucket with a single shift.
-    (hash.wrapping_mul(BUCKET_MUL) >> (64 - num_buckets.trailing_zeros())) as usize
-}
-
-/// Returns the slot that a bucket's pilot sends a hash to.
-#[inline]
-pub(crate) fn pilot_slot(hash: u64, pilot: u16, slots: usize) -> usize {
-    let mixed = (hash ^ PILOT_MUL.wrapping_mul(u64::from(pilot))).wrapping_mul(PILOT_MUL);
-    fastrange(mixed, slots)
-}
-
-/// Returns the number of slots that the pilot strategy scatters `n` keys into.
-#[inline]
-pub(crate) const fn slot_count(n: usize) -> usize {
-    // Without the ~1% slack, the last buckets must hit exactly the few remaining free slots, which often needs pilots beyond the `u16` range.
-    n + n.div_ceil(100)
+    slot_of_mix(hash as u32, len)
 }
 
 /// Returns the number of pilot buckets for `n` entries.
@@ -91,4 +59,59 @@ pub(crate) const fn bucket_count(n: usize) -> usize {
     let buckets = n.div_ceil(LAMBDA).next_power_of_two();
     // A single bucket would mean a shift by 64.
     if buckets < 2 { 2 } else { buckets }
+}
+
+/// Returns the right shift that [`bucket`] applies for `num_buckets` buckets.
+#[inline]
+pub(crate) const fn bucket_shift(num_buckets: usize) -> u32 {
+    debug_assert!(
+        num_buckets >= 2 && num_buckets.is_power_of_two(),
+        "bucket selection requires a power-of-two bucket count"
+    );
+    64 - num_buckets.trailing_zeros()
+}
+
+/// Returns the bucket index for a hash, given the shift from [`bucket_shift`].
+#[expect(clippy::cast_possible_truncation)]
+#[inline]
+pub(crate) fn bucket(hash: u64, shift: u32) -> usize {
+    debug_assert!(
+        (50..64).contains(&shift),
+        "shift must select 2..=16384 buckets"
+    );
+    // The half left alone by `slot_input` selects the bucket with a single shift.
+    ((hash as u32) >> (shift - 32)) as usize
+}
+
+/// Returns the number of slots that the pilot strategy scatters `n` keys into.
+#[inline]
+pub(crate) const fn slot_count(n: usize) -> usize {
+    // Without the ~1% slack, the last buckets must hit exactly the few remaining free slots, which often needs pilots beyond the `u16` range.
+    n + n.div_ceil(100)
+}
+
+/// Returns the half of a hash used for slot selection.
+#[inline]
+fn slot_input(hash: u64) -> u32 {
+    (hash >> 32) as u32
+}
+
+/// Returns the value to be reduced by [`pilot_slot`].
+///
+/// This is affine in the pilot; i.e. `pilot_mix(h, p + d) == pilot_mix(h, p) + d * slot_input(h)` for `p + d <= u16::MAX`.
+#[inline]
+pub(crate) fn pilot_mix(hash: u64, pilot: u16) -> u32 {
+    slot_input(hash).wrapping_mul(PILOT_MUL.wrapping_add(u32::from(pilot)))
+}
+
+/// Reduces the result of [`pilot_mix`] to a slot in `[0, slots)`.
+#[inline]
+pub(crate) fn slot_of_mix(mixed: u32, slots: usize) -> usize {
+    ((u64::from(mixed) * slots as u64) >> 32) as usize
+}
+
+/// Returns the slot for a hash based on the provided pilot.
+#[inline]
+pub(crate) fn pilot_slot(hash: u64, pilot: u16, slots: usize) -> usize {
+    slot_of_mix(pilot_mix(hash, pilot), slots)
 }

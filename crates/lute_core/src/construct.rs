@@ -1,8 +1,8 @@
 //! Map and set construction.
 
 use crate::kernel::{
-    DIRECT_MAX, MAX_LEN, SCAN_MAX, bucket, bucket_count, fastrange, hash, pilot_slot, shared_seed,
-    slot_count,
+    DIRECT_MAX, MAX_LEN, SCAN_MAX, bucket, bucket_count, bucket_shift, fastrange, hash, pilot_slot,
+    shared_seed, slot_count,
 };
 use crate::map::{CowSlice, Map};
 use crate::set::Set;
@@ -203,6 +203,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
 
     let slots = slot_count(n);
     let num_buckets = bucket_count(n);
+    let shift = bucket_shift(num_buckets);
 
     // We bucket keys with a CSR layout (one packed entry array plus offsets) instead of a `Vec` per bucket.
     // `u16` suffices since every entry index, count, and offset is at most `n`, which is itself at most `u16::MAX`,
@@ -211,7 +212,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
     #[expect(clippy::cast_possible_truncation)]
     let key_buckets: Vec<_> = hashes
         .iter()
-        .map(|&h| bucket(h, num_buckets) as u16)
+        .map(|&h| bucket(h, shift) as u16)
         .collect();
     let mut starts = vec![0u16; num_buckets + 1];
     for &b in &key_buckets {
@@ -259,24 +260,6 @@ fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
         let b_entries = &bucket_entries[lo..hi];
         let b_hashes = &bucket_hashes[lo..hi];
 
-        for (i, &h1) in b_hashes.iter().enumerate() {
-            for (j, &h2) in b_hashes.iter().enumerate().skip(i + 1) {
-                // Two items hashing identically can never be separated, no matter the seed.
-                if h1 == h2 {
-                    return Err(ConstructError::Identical(
-                        usize::from(b_entries[i]),
-                        usize::from(b_entries[j]),
-                    ));
-                }
-                // `kernel::fastrange` only consumes the mixed pilot's low 32 bits, and the mixing itself preserves equality in the low 32 bits.
-                // So, if these two hashes match in the low 32 bits, they will land on the same slot for each pilot and we have to reseed.
-                #[expect(clippy::cast_possible_truncation)]
-                if h1 as u32 == h2 as u32 {
-                    return Err(ConstructError::Exhausted);
-                }
-            }
-        }
-
         'pilots: for pilot in 0..=u16::MAX {
             placements.clear();
 
@@ -299,6 +282,17 @@ fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
             }
 
             continue 'buckets;
+        }
+
+        for (i, &h1) in b_hashes.iter().enumerate() {
+            for (j, &h2) in b_hashes.iter().enumerate().skip(i + 1) {
+                if h1 == h2 {
+                    return Err(ConstructError::Identical(
+                        usize::from(b_entries[i]),
+                        usize::from(b_entries[j]),
+                    ));
+                }
+            }
         }
 
         return Err(ConstructError::Exhausted);

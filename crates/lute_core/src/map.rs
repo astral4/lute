@@ -1,6 +1,6 @@
 use crate::kernel::{
-    DIRECT_MAX, SCAN_MAX, bucket, bucket_count, fastrange, hash, pilot_slot, shared_seed,
-    slot_count,
+    DIRECT_MAX, SCAN_MAX, bucket, bucket_count, bucket_shift, fastrange, hash, pilot_slot,
+    shared_seed, slot_count,
 };
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
@@ -186,9 +186,10 @@ impl<K, V> Map<K, V> {
             let remap: &[u16] = &self.remap;
 
             let slot = {
-                // SAFETY: `kernel::bucket` returns a value less than `pilots.len()` for any hash because `pilots.len()`
-                // is a power of 2 and at least 2. Construction produces exactly `kernel::bucket_count(n)` pilots.
-                let pilot = *unsafe { pilots.get_unchecked(bucket(hash, pilots.len())) };
+                // SAFETY: `kernel::bucket` returns a value less than `pilots.len()` for any hash because the shift is
+                // `kernel::bucket_shift(pilots.len())` and `pilots.len()` is a power of 2 and at least 2.
+                // Construction produces exactly `kernel::bucket_count(n)` pilots.
+                let pilot = *unsafe { pilots.get_unchecked(bucket(hash, bucket_shift(pilots.len()))) };
                 pilot_slot(hash, pilot, n + remap.len())
             };
 
