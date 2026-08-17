@@ -134,7 +134,7 @@ where
 
 /// Returns bucket indices ordered by descending size, with ties broken by ascending index.
 ///
-/// Equivalent to `sort_unstable_by_key(|&b| (Reverse(size(b)), b))`,
+/// Equivalent to `sort_unstable_by_key(|&b| (Reverse(size(b)), b))`.
 fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
     // `starts` is the CSR prefix sum, so bucket `b`'s size is  `starts[b + 1] - starts[b]`.
     let size = |b| {
