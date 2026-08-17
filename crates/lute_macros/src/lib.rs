@@ -299,10 +299,9 @@ fn lit_to_hash_key(lit: &Lit) -> SynResult<HashKey> {
         Lit::Byte(b) => Ok(HashKey::Int(IntBits::W8(b.value()))),
         Lit::Int(int) => {
             let (signed, width) = int_type(int)?;
-            let bits =
-                positive_bits(int.base10_parse::<u128>()?, signed, width).ok_or_else(|| {
-                    Error::new_spanned(int, "integer key is out of range for its type")
-                })?;
+            let bits = positive_bits(int.base10_parse()?, signed, width).ok_or_else(|| {
+                Error::new_spanned(int, "integer key is out of range for its type")
+            })?;
             Ok(HashKey::Int(int_bits(width, bits)))
         }
         Lit::Float(_) => Err(Error::new_spanned(
@@ -328,7 +327,7 @@ fn repeat_count(len: &Expr) -> SynResult<usize> {
     match strip_groups(len) {
         Expr::Lit(ExprLit {
             lit: Lit::Int(int), ..
-        }) => int.base10_parse::<usize>(),
+        }) => int.base10_parse(),
         Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => Err(Error::new_spanned(
             len,
             "array repeat count cannot be negative",
@@ -358,7 +357,7 @@ fn negated_int(operand: &Expr) -> SynResult<HashKey> {
             "cannot negate an unsigned integer key",
         ));
     }
-    let bits = negative_bits(int.base10_parse::<u128>()?, width)
+    let bits = negative_bits(int.base10_parse()?, width)
         .ok_or_else(|| Error::new_spanned(int, "integer key is out of range for its type"))?;
     Ok(HashKey::Int(int_bits(width, bits)))
 }
@@ -520,10 +519,10 @@ fn compute_parts(keys: &[&Expr]) -> SynResult<MapState> {
         });
     }
 
-    let hash_keys: Vec<HashKey> = keys
+    let hash_keys = keys
         .iter()
         .map(|&key| expr_to_hash_key(key))
-        .collect::<SynResult<_>>()?;
+        .collect::<SynResult<Vec<_>>>()?;
 
     let mut seen: HashMap<&HashKey, &Expr> = HashMap::with_capacity(hash_keys.len());
     for (hash_key, key) in hash_keys.iter().zip(keys.iter().copied()) {
