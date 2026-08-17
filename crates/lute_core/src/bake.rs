@@ -28,18 +28,11 @@ where
         let krate = crate_path(ctx);
 
         let seed = self.seed.bake(ctx);
-        let pilots = self.pilots.iter().map(|p| p.bake(ctx));
-        let remap = self.remap.iter().map(|r| r.bake(ctx));
-        let entries = self.entries.iter().map(|e| e.bake(ctx));
+        let pilots = (&*self.pilots).bake(ctx);
+        let remap = (&*self.remap).bake(ctx);
+        let entries = (&*self.entries).bake(ctx);
 
-        quote! {
-            #krate::Map::from_baked_parts(
-                #seed,
-                &[#(#pilots),*],
-                &[#(#remap),*],
-                &[#(#entries),*],
-            )
-        }
+        quote!(#krate::Map::from_baked_parts(#seed, #pilots, #remap, #entries))
     }
 }
 
