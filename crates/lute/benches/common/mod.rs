@@ -5,8 +5,8 @@ use divan::counter::ItemsCount;
 use rand_core::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
-pub(crate) const SIZES: [usize; 25] = [
-    1, 2, 4, 6, 8, 9, 10, 12, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 25000,
+pub(crate) const SIZES: [usize; 26] = [
+    1, 2, 4, 6, 8, 10, 11, 12, 14, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 25000,
     32768, 50000, 60000, 65000, 65535,
 ];
 
