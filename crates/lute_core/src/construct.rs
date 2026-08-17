@@ -209,7 +209,7 @@ fn generate_pilots<T>(
 /// and a packed array of hashes. For example, `starts[b]..starts[b + 1]` is bucket `b`'s slice of the packed arrays.
 ///
 /// `u16` suffices for the offsets since every entry index, count, and offset is at most `n`, which is at most [`MAX_LEN`],
-/// and `num_buckets` is at most `MAX_LEN.div_ceil(LAMBDA).next_power_of_two()` = 16384.
+/// and `num_buckets` is at most `MAX_LEN.div_ceil(LAMBDA).next_power_of_two()` = 32768.
 fn bucket_keys(hashes: &[u64], num_buckets: usize, shift: u32) -> (Vec<u16>, Vec<u16>, Vec<u64>) {
     let mut starts = vec![0u16; num_buckets + 1];
     for &h in hashes {
@@ -249,7 +249,7 @@ fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
 
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "`num_buckets` is at most `MAX_LEN.div_ceil(LAMBDA).next_power_of_two()` = 16384"
+        reason = "`num_buckets` is at most `MAX_LEN.div_ceil(LAMBDA).next_power_of_two()` = 32768"
     )]
     let num_buckets = (starts.len() - 1) as u16;
 

@@ -26,8 +26,8 @@ const _: () = assert!(PACKED_MAX <= PACKED_SLOTS);
 const _: () = assert!(PACKED_SLOTS.is_power_of_two() && PACKED_SLOTS <= u16::BITS as usize);
 const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
 
-/// The average number of keys per bucket in the pilot strategy. Higher = faster construction but more space usage.
-const LAMBDA: usize = 4;
+/// The average number of keys per bucket in the pilot strategy. Lower = faster construction but more space usage.
+const LAMBDA: usize = 3;
 
 /// The closest odd number to `2^32 / pi`. Used because its bits are well-dispersed. See also: FxHash, PTHash, and PtrHash.
 const PILOT_MUL: u32 = 1_367_130_551;
@@ -91,8 +91,8 @@ pub(crate) const fn bucket_shift(num_buckets: usize) -> u32 {
 #[inline]
 pub(crate) fn bucket(hash: u64, shift: u32) -> usize {
     debug_assert!(
-        (50..64).contains(&shift),
-        "shift must select 2..=16384 buckets"
+        (49..64).contains(&shift),
+        "shift must select 2..=32768 buckets"
     );
     // The half left alone by `slot_input` selects the bucket with a single shift.
     ((hash as u32) >> (shift - 32)) as usize
