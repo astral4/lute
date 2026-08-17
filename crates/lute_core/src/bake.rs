@@ -1,5 +1,4 @@
-//! Codegen support for serializing constructed maps and sets into Rust code.
-//! Requires `std` for crate name resolution.
+//! Codegen support for serializing constructed maps and sets into Rust code. Requires `std` for crate name resolution.
 
 use crate::map::Map;
 use crate::set::Set;
@@ -8,7 +7,7 @@ use proc_macro_crate::{FoundCrate, crate_name};
 
 /// Returns the path to the `lute` crate and registers it with the bake environment.
 ///
-/// Generated code defaults to `::lute`; when Cargo can resolve how the consuming crate imports `lute`, that name is used instead.
+/// Generated code defaults to `::lute`. When Cargo can resolve how the consuming crate imports `lute`, that name is used instead.
 fn crate_path(ctx: &CrateEnv) -> TokenStream {
     let name: &'static str = match crate_name("lute") {
         Ok(FoundCrate::Name(name)) if name != "lute" => name.leak(),
@@ -27,6 +26,7 @@ where
 {
     fn bake(&self, ctx: &CrateEnv) -> TokenStream {
         let krate = crate_path(ctx);
+
         let seed = self.seed.bake(ctx);
         let pilots = self.pilots.iter().map(|p| p.bake(ctx));
         let remap = self.remap.iter().map(|r| r.bake(ctx));
