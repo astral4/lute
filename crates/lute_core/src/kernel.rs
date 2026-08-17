@@ -11,12 +11,19 @@ pub const MAX_LEN: usize = u16::MAX as usize;
 /// Maps with at most this many entries use linear scanning for lookups; no hashing or auxiliary data involved.
 pub(crate) const SCAN_MAX: usize = 1;
 
-/// Maps with at most this many entries use the table-free "direct" strategy, which finds a single seed under which the keys are already perfect.
-/// The search costs roughly `e^n / sqrt(n)` seed attempts (each hashing every key), so this strategy is only viable at sufficiently small sizes.
-pub(crate) const DIRECT_MAX: usize = 10;
+/// Maps with at most this many entries use the packed strategy, which scatters the keys over [`PACKED_SLOTS`] slots
+/// and stores the resulting slot-to-entry table inline in the map.
+pub(crate) const PACKED_MAX: usize = 12;
 
-const _: () = assert!(SCAN_MAX < DIRECT_MAX);
-const _: () = assert!(DIRECT_MAX <= usize::BITS as usize);
+/// The number of slots to scatter keys into in the packed strategy.
+pub(crate) const PACKED_SLOTS: usize = 16;
+
+/// The number of bit windows to choose between in the packed strategy.
+pub(crate) const PACKED_SHIFTS: u32 = 65 - PACKED_SLOTS.trailing_zeros();
+
+const _: () = assert!(SCAN_MAX < PACKED_MAX);
+const _: () = assert!(PACKED_MAX <= PACKED_SLOTS);
+const _: () = assert!(PACKED_SLOTS.is_power_of_two() && PACKED_SLOTS <= u16::BITS as usize);
 const _: () = assert!(bucket_count(MAX_LEN) <= u16::MAX as usize);
 
 /// The average number of keys per bucket in the pilot strategy. Higher = faster construction but more space usage.
@@ -41,14 +48,22 @@ where
     hasher.finish()
 }
 
-/// Reduces a 64-bit hash into `[0, len)` without division using its low 32 bits.
+/// Returns the slot in `0..PACKED_SLOTS` that the window at `shift` puts `hash` in.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "the reduction only consumes the low 32 bits"
+    reason = "the mask keeps the result below `PACKED_SLOTS`"
 )]
 #[inline]
-pub(crate) fn fastrange(hash: u64, len: usize) -> usize {
-    slot_of_mix(hash as u32, len)
+pub(crate) fn packed_slot(hash: u64, shift: u32) -> u32 {
+    debug_assert!(shift < PACKED_SHIFTS);
+    (hash >> shift) as u32 & (PACKED_SLOTS as u32 - 1)
+}
+
+/// Returns the entry index that the packed table `packed` assigns to `hash`.
+#[inline]
+pub(crate) fn packed_index(hash: u64, shift: u32, packed: &[u8; PACKED_SLOTS]) -> usize {
+    // `packed_slot` is bounded by the table length, so no bounds check is needed.
+    usize::from(packed[packed_slot(hash, shift) as usize])
 }
 
 /// Returns the number of pilot buckets for `n` entries.
@@ -83,7 +98,7 @@ pub(crate) fn bucket(hash: u64, shift: u32) -> usize {
     ((hash as u32) >> (shift - 32)) as usize
 }
 
-/// Returns the number of slots that the pilot strategy scatters `n` keys into.
+/// Returns the number of slots to scatter `n` keys into in the pilot strategy,
 #[inline]
 pub(crate) const fn slot_count(n: usize) -> usize {
     // Without the ~1% slack, the last buckets must hit exactly the few remaining free slots, which often needs pilots beyond the `u16` range.

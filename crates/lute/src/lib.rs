@@ -131,5 +131,10 @@
 
 pub use lute_core::{Map, MapEntries, MapKeys, MapValues, Set, SetEntries};
 
+/// Named by code that the `map!`/`set!` macros and `codegen` builds emit, so it has to be reachable
+/// through this crate even though it is not part of the public API.
+#[doc(hidden)]
+pub use lute_core::BakedStrategy;
+
 #[cfg(feature = "macros")]
 pub use lute_macros::{map, set};

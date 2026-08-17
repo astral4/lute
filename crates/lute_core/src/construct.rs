@@ -1,10 +1,10 @@
 //! Map and set construction.
 
 use crate::kernel::{
-    DIRECT_MAX, MAX_LEN, SCAN_MAX, bucket, bucket_count, bucket_shift, fastrange, hash, pilot_mix,
-    pilot_slot, pilot_step, shared_seed, slot_count, slot_of_mix,
+    MAX_LEN, PACKED_MAX, PACKED_SHIFTS, PACKED_SLOTS, SCAN_MAX, bucket, bucket_count, bucket_shift,
+    hash, packed_slot, pilot_mix, pilot_slot, pilot_step, shared_seed, slot_count, slot_of_mix,
 };
-use crate::map::{CowSlice, Map};
+use crate::map::{CowSlice, Map, pilot_shift, slot_total};
 use crate::set::Set;
 use alloc::{vec, vec::Vec};
 use core::hash::Hash;
@@ -17,8 +17,8 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 
 const FIXED_SEED: u64 = 310_514_310_514_310_514;
 
-/// The number of seeds tried for the direct strategy before falling back to the pilot strategy.
-const DIRECT_BUDGET: usize = 1 << 16;
+/// The number of seeds tried for the packed strategy before falling back to the pilot strategy.
+const PACKED_SEED_BUDGET: usize = 16;
 
 /// The number of pilots per batch checked by the bucket search. Must divide 65536.
 const PILOT_BATCH: u32 = 8;
@@ -28,7 +28,7 @@ const _: () = assert!(PILOT_BATCH.is_power_of_two() && PILOT_BATCH <= u64::BITS)
 /// The number of seeds tried for the pilot strategy before giving up. Valid key sets should be hashed perfectly
 /// within the first few seeds, so exhausting this budget probably means no perfect hash exists.
 /// This can happen when two distinct keys hash identically under every seed (`Hash` impl inconsistent with `Eq` impl).
-const SEED_BUDGET: usize = 1 << 8;
+const PILOT_SEED_BUDGET: usize = 1 << 8;
 
 /// Sentinel marking a free slot in the pilot strategy. Real entry indices are less than `n`, which is at most `u16::MAX`,
 /// so `u16::MAX` is never an index.
@@ -40,12 +40,29 @@ const EMPTY: u16 = u16::MAX;
 pub struct MapState {
     /// The hash seed.
     pub seed: u64,
-    /// One pilot per bucket. Empty for the scan and direct strategies.
-    pub pilots: Vec<u16>,
-    /// The overflow-slot remap table.
-    pub remap: Vec<u16>,
-    /// For each final position, the index of the caller's entry that belongs there. This is a permutation of `0..len`.
-    pub indices: Vec<u16>,
+    pub strategy: Strategy,
+}
+
+/// Tables produced by a construction strategy. See [`crate::BakedStrategy`] for the form used by generated code.
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum Strategy {
+    /// A bit window of the hash indexes `table`.
+    Packed {
+        /// One entry index per slot.
+        table: [u8; PACKED_SLOTS],
+        /// Which bit window of the hash selects the slot.
+        shift: u32,
+    },
+    /// The hash selects a bucket and the bucket's pilot selects a slot. Slots past the entries are remapped back.
+    Pilots {
+        /// One pilot per bucket.
+        pilots: Vec<u16>,
+        /// Entry indices for the overflow slots.
+        remap: Vec<u16>,
+        /// For each final position, the index of the caller's entry that belongs there. This is a permutation of `0..len`.
+        indices: Vec<u16>,
+    },
 }
 
 #[doc(hidden)]
@@ -97,20 +114,15 @@ fn generate<T>(
     let n = items.len();
 
     if n <= SCAN_MAX {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "`n` is at most `SCAN_MAX`"
-        )]
-        let indices = (0..n).map(|i| i as u16).collect();
-
         Ok(MapState {
             seed: 0,
-            pilots: Vec::new(),
-            remap: Vec::new(),
-            indices,
+            strategy: Strategy::Packed {
+                table: [0; PACKED_SLOTS],
+                shift: 0,
+            },
         })
-    } else if n <= DIRECT_MAX
-        && let Some(state) = generate_direct(items, n, &hash_item)
+    } else if n <= PACKED_MAX
+        && let Some(state) = generate_packed(items, n, &hash_item)
     {
         Ok(state)
     } else {
@@ -118,74 +130,73 @@ fn generate<T>(
     }
 }
 
-/// Searches for a single seed such that `fastrange(hash(key), n)` is a bijection over the keys.
-/// Lookups then need only one hash and one multiply-shift.
+/// Searches for a bit window of the hash that separates the keys into distinct slots, then records the resulting slot-to-entry table.
 #[inline]
-fn generate_direct<T>(
+fn generate_packed<T>(
     items: &[T],
     n: usize,
     hash_item: &impl Fn(&T, u64, &SharedSeed) -> u64,
 ) -> Option<MapState> {
-    let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
-    let mut slot_entries = vec![0u16; n];
+    debug_assert!(n <= PACKED_MAX);
 
-    'seeds: for _ in 0..DIRECT_BUDGET {
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
+    let mut hashes = [0u64; PACKED_MAX];
+    let hashes = &mut hashes[..n];
+
+    for _ in 0..PACKED_SEED_BUDGET {
         let seed = rng.next_u64();
         let shared = shared_seed(seed);
-        // Bit `s` marks slot `s` being taken on this attempt.
-        let mut taken = 0usize;
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "`i` indexes at most `DIRECT_MAX` entries"
-        )]
-        for (i, item) in items.iter().enumerate() {
-            let slot = fastrange(hash_item(item, seed, &shared), n);
-            let bit = 1 << slot;
-            if taken & bit != 0 {
-                continue 'seeds;
-            }
-            taken |= bit;
-            slot_entries[slot] = i as u16;
+        for (out, item) in zip(&mut *hashes, items) {
+            *out = hash_item(item, seed, &shared);
         }
 
-        return Some(MapState {
-            seed,
-            pilots: Vec::new(),
-            remap: Vec::new(),
-            indices: slot_entries,
-        });
+        for shift in 0..PACKED_SHIFTS {
+            let mut taken = 0u16;
+            for &hash in &*hashes {
+                taken |= 1 << packed_slot(hash, shift);
+            }
+            if taken.count_ones() as usize != n {
+                continue;
+            }
+
+            let mut table = [0u8; PACKED_SLOTS];
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "`i` indexes at most `PACKED_MAX` <= 16 entries"
+            )]
+            for (i, &hash) in hashes.iter().enumerate() {
+                table[packed_slot(hash, shift) as usize] = i as u8;
+            }
+
+            return Some(MapState {
+                seed,
+                strategy: Strategy::Packed { table, shift },
+            });
+        }
     }
 
     None
 }
 
-/// Pilot strategy: Assign keys to buckets, then search each bucket for a pilot value that scrambles its keys onto free slots.
-/// Keys land in `n` plus ~1% slack slots; the keys landing past `n` are remapped back into the free slots below `n`.
+/// Assigns keys to buckets, then searches each bucket for a pilot value that scrambles its keys onto free slots.
+/// Keys land in `n` plus ~1% slack slots. The keys landing past `n` are remapped back into the free slots below `n`.
 #[inline]
 fn generate_pilots<T>(
     items: &[T],
     n: usize,
     hash_item: &impl Fn(&T, u64, &SharedSeed) -> u64,
 ) -> Result<MapState, ConstructError> {
-    let mut hashes: Vec<_> = Vec::with_capacity(n);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
+    let mut hashes = Vec::with_capacity(n);
 
-    for _ in 0..SEED_BUDGET {
+    for _ in 0..PILOT_SEED_BUDGET {
         let seed = rng.next_u64();
         let shared = shared_seed(seed);
         hashes.clear();
         hashes.extend(items.iter().map(|item| hash_item(item, seed, &shared)));
 
         match try_pilots(&hashes, n) {
-            Ok((pilots, remap, indices)) => {
-                return Ok(MapState {
-                    seed,
-                    pilots,
-                    remap,
-                    indices,
-                });
-            }
+            Ok(strategy) => return Ok(MapState { seed, strategy }),
             Err(e @ ConstructError::Identical(..)) => return Err(e),
             Err(ConstructError::Exhausted) => {}
         }
@@ -193,9 +204,6 @@ fn generate_pilots<T>(
 
     Err(ConstructError::Exhausted)
 }
-
-/// The pilot table, the overflow-slot remap table, and the dense entry order from a successful pilot search.
-type PilotTables = (Vec<u16>, Vec<u16>, Vec<u16>);
 
 /// Groups the keys by bucket into a CSR layout. Returns the starting offsets of each bucket, a packed array of entry indices,
 /// and a packed array of hashes. For example, `starts[b]..starts[b + 1]` is bucket `b`'s slice of the packed arrays.
@@ -266,7 +274,7 @@ fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
     order
 }
 
-fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
+fn try_pilots(hashes: &[u64], n: usize) -> Result<Strategy, ConstructError> {
     debug_assert!(n <= MAX_LEN, "entry indices must fit in u16");
 
     let slots = slot_count(n);
@@ -359,11 +367,14 @@ fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
     }
 
     let (remap, indices) = compact(&slot_entries, n);
-    Ok((pilots, remap, indices))
+    Ok(Strategy::Pilots {
+        pilots,
+        remap,
+        indices,
+    })
 }
 
 /// Compacts the slot table, returning the remap table and the dense entry order.
-/// A slot below `n` is its own entry index; each occupied overflow slot is remapped to a free slot below `n`.
 fn compact(slot_entries: &[u16], n: usize) -> (Vec<u16>, Vec<u16>) {
     let mut remap = vec![0u16; slot_entries.len() - n];
     let mut indices = slot_entries[..n].to_vec();
@@ -461,19 +472,33 @@ impl<K, V> Map<K, V> {
                     )
                 }
                 ConstructError::Exhausted => panic!(
-                    "could not find a perfect hash function for the given keys after {SEED_BUDGET} attempts"
+                    "could not find a perfect hash function for the given keys after {PILOT_SEED_BUDGET} attempts"
                 ),
             });
 
-        // SAFETY: `state.indices` is a permutation of `0..entries.len()`. Every strategy places each of the `n` keys
-        // in exactly one slot, and the pilot strategy pairs each occupied overflow slot with a distinct free slot below `n`.
-        let entries = unsafe { gather(entries, &state.indices) };
+        let (entries, packed, packed_shift, pilots, remap) = match state.strategy {
+            Strategy::Packed { table, shift } => (entries, table, shift, Vec::new(), Vec::new()),
+            Strategy::Pilots {
+                pilots,
+                remap,
+                indices,
+            } => {
+                // SAFETY: `indices` is a permutation of `0..entries.len()`. The search places each of the `n` keys in exactly one slot
+                // and pairs each occupied overflow slot with a distinct free slot below `n`.
+                let entries = unsafe { gather(entries, &indices) };
+                (entries, [0; PACKED_SLOTS], 0, pilots, remap)
+            }
+        };
 
         Self {
             seed: state.seed,
             shared_seed: shared_seed(state.seed),
-            pilots: CowSlice::Owned(state.pilots),
-            remap: CowSlice::Owned(state.remap),
+            packed,
+            packed_shift,
+            bucket_shift: pilot_shift(&pilots),
+            slots: slot_total(entries.len(), remap.len()),
+            pilots: CowSlice::Owned(pilots),
+            remap: CowSlice::Owned(remap),
             entries: CowSlice::Owned(entries),
         }
     }
@@ -569,8 +594,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{DIRECT_MAX, MAX_LEN, gather, order_buckets_by_size};
-    use crate::kernel::{SCAN_MAX, slot_count};
+    use super::{MAX_LEN, gather, order_buckets_by_size};
+    use crate::kernel::{PACKED_MAX, SCAN_MAX, slot_count};
     use crate::map::Map;
     use std::cmp::Reverse;
     use std::collections::HashSet;
@@ -640,7 +665,7 @@ mod test {
         let sizes = (0u32..=20)
             .chain([50, 100, 256, 1000, 49152, 50000])
             .chain([253, 1013, 64887]); // `n` where `kernel::slot_count(n)` is a power of 2
-        let (mut saw_scan, mut saw_direct, mut saw_pilots) = (false, false, false);
+        let (mut saw_scan, mut saw_packed, mut saw_pilots) = (false, false, false);
 
         for n in sizes {
             // `2_654_435_769` is the closest odd number to `2^32 / phi`; its multiples evenly scatter `0..n` into distinct keys.
@@ -652,14 +677,14 @@ mod test {
                 assert!(map.pilots.is_empty(), "scan n={n} should have no pilots");
                 saw_scan = true;
             } else if map.pilots.is_empty() {
-                saw_direct = true;
+                saw_packed = true;
             } else {
                 saw_pilots = true;
             }
-            if count > DIRECT_MAX {
+            if count > PACKED_MAX {
                 assert!(
                     !map.pilots.is_empty(),
-                    "n={n} above DIRECT_MAX should use the pilot strategy"
+                    "n={n} above PACKED_MAX should use the pilot strategy"
                 );
                 assert_eq!(
                     map.remap.len(),
@@ -672,29 +697,29 @@ mod test {
         }
 
         assert!(saw_scan, "scan strategy never used");
-        assert!(saw_direct, "direct strategy never used");
+        assert!(saw_packed, "packed strategy never used");
         assert!(saw_pilots, "pilot strategy never used");
     }
 
     #[test]
-    fn direct_strategy_structured_keys() {
-        fn assert_direct(name: &str, keys: impl Iterator<Item = u64>) {
+    fn packed_strategy_structured_keys() {
+        fn assert_packed(name: &str, keys: impl Iterator<Item = u64>) {
             let map: Map<_, _> = keys.map(|k| (k, k)).collect();
             assert!(
                 map.pilots.is_empty(),
-                "{name} should use the direct strategy"
+                "{name} should use the packed strategy"
             );
             for (k, v) in map.entries() {
                 assert_eq!(map.get(k), Some(v), "{name} key={k}");
             }
         }
 
-        assert_direct("consecutive", 0..8);
-        assert_direct("stride16", (0..8).map(|k| k * 16));
-        assert_direct("shift16", (0..8).map(|k| k << 16));
-        assert_direct("shift48", (0..8).map(|k| k << 48));
-        assert_direct("big_offset", (0..8).map(|k| (1u64 << 40) + k));
-        assert_direct("interleave", (0..8).map(|k| k | (k << 32)));
+        assert_packed("consecutive", 0..8);
+        assert_packed("stride16", (0..8).map(|k| k * 16));
+        assert_packed("shift16", (0..8).map(|k| k << 16));
+        assert_packed("shift48", (0..8).map(|k| k << 48));
+        assert_packed("big_offset", (0..8).map(|k| (1u64 << 40) + k));
+        assert_packed("interleave", (0..8).map(|k| k | (k << 32)));
     }
 
     #[test]

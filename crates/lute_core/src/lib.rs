@@ -24,7 +24,9 @@ pub use set::{Set, SetEntries};
 
 #[doc(hidden)]
 pub use kernel::MAX_LEN;
+#[doc(hidden)]
+pub use map::BakedStrategy;
 
 #[cfg(feature = "construct")]
 #[doc(hidden)]
-pub use construct::{ConstructError, MapState, construct};
+pub use construct::{ConstructError, MapState, Strategy, construct};

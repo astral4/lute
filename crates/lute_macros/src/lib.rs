@@ -2,10 +2,10 @@
 //!
 //! These are re-exported by `lute` behind its `macros` feature. Depend on `lute` rather than this crate directly.
 
-use lute_core::{ConstructError, MAX_LEN, MapState, construct};
+use lute_core::{ConstructError, MAX_LEN, MapState, Strategy, construct};
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::{Literal, Span, TokenStream as TokenStream2};
 use quote::quote;
 use std::ffi::CString;
 use std::hash::{Hash, Hasher};
@@ -643,18 +643,28 @@ fn build_output(
     bake_entry: impl Fn(usize) -> TokenStream2,
     wrap: impl FnOnce(TokenStream2, &TokenStream2) -> TokenStream2,
 ) -> SynResult<TokenStream2> {
-    let MapState {
-        seed,
-        pilots,
-        remap,
-        indices,
-    } = compute_parts(keys)?;
+    let MapState { seed, strategy } = compute_parts(keys)?;
     let krate = crate_path();
-    let baked = indices.iter().map(|&i| bake_entry(i as usize));
 
-    let table = quote! {
-        #krate::Map::from_baked_parts(#seed, &[#(#pilots),*], &[#(#remap),*], &[#(#baked),*])
+    let (baked, strategy) = match strategy {
+        Strategy::Packed { table, shift } => {
+            let baked: Vec<_> = (0..keys.len()).map(&bake_entry).collect();
+            let table = Literal::byte_string(&table);
+            let strategy = quote!(#krate::BakedStrategy::Packed { table: *#table, shift: #shift });
+            (baked, strategy)
+        }
+        Strategy::Pilots {
+            pilots,
+            remap,
+            indices,
+        } => {
+            let baked = indices.iter().map(|&i| bake_entry(i as usize)).collect();
+            let strategy = quote!(#krate::BakedStrategy::Pilots { pilots: &[#(#pilots),*], remap: &[#(#remap),*] });
+            (baked, strategy)
+        }
     };
+
+    let table = quote!(#krate::Map::from_baked_parts(#seed, &[#(#baked),*], #strategy));
 
     Ok(with_portability_guard(wrap(table, &krate), keys))
 }
