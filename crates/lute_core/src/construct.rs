@@ -11,7 +11,7 @@ use core::hash::Hash;
 use core::iter::zip;
 use core::mem::replace;
 use core::ptr::{read, write};
-use hashbrown::HashSet;
+use foldhash::SharedSeed;
 use rand_core::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
@@ -39,12 +39,22 @@ pub struct MapState {
     pub indices: Vec<u16>,
 }
 
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug)]
+pub enum ConstructError {
+    /// These two items hashed identically.
+    Identical(usize, usize),
+    /// No perfect hash function was found.
+    Exhausted,
+}
+
+/// Builds a perfect hash function over `items`, hashing each one with `hash_item`.
 #[inline]
-fn generate<T>(entries: &[T]) -> Option<MapState>
-where
-    T: Hash,
-{
-    let n = entries.len();
+fn generate<T>(
+    items: &[T],
+    hash_item: impl Fn(&T, u64, &SharedSeed) -> u64,
+) -> Result<MapState, ConstructError> {
+    let n = items.len();
 
     if n <= SCAN_MAX {
         #[expect(
@@ -53,27 +63,29 @@ where
         )]
         let indices = (0..n).map(|i| i as u16).collect();
 
-        Some(MapState {
+        Ok(MapState {
             seed: 0,
             pilots: Vec::new(),
             remap: Vec::new(),
             indices,
         })
     } else if n <= DIRECT_MAX
-        && let Some(state) = generate_direct(entries, n)
+        && let Some(state) = generate_direct(items, n, &hash_item)
     {
-        Some(state)
+        Ok(state)
     } else {
-        generate_pilots(entries, n)
+        generate_pilots(items, n, &hash_item)
     }
 }
 
 /// Searches for a single seed such that `fastrange(hash(key), n)` is a bijection over the keys.
 /// Lookups then need only one hash and one multiply-shift.
-fn generate_direct<T>(entries: &[T], n: usize) -> Option<MapState>
-where
-    T: Hash,
-{
+#[inline]
+fn generate_direct<T>(
+    items: &[T],
+    n: usize,
+    hash_item: &impl Fn(&T, u64, &SharedSeed) -> u64,
+) -> Option<MapState> {
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
     let mut slot_entries = vec![0u16; n];
 
@@ -87,8 +99,8 @@ where
             clippy::cast_possible_truncation,
             reason = "`i` indexes at most `DIRECT_MAX` entries"
         )]
-        for (i, entry) in entries.iter().enumerate() {
-            let slot = fastrange(hash(entry, seed, &shared), n);
+        for (i, item) in items.iter().enumerate() {
+            let slot = fastrange(hash_item(item, seed, &shared), n);
             let bit = 1 << slot;
             if taken & bit != 0 {
                 continue 'seeds;
@@ -110,10 +122,12 @@ where
 
 /// Pilot strategy: Assign keys to buckets, then search each bucket for a pilot value that scrambles its keys onto free slots.
 /// Keys land in `n` plus ~1% slack slots; the keys landing past `n` are remapped back into the free slots below `n`.
-fn generate_pilots<T>(entries: &[T], n: usize) -> Option<MapState>
-where
-    T: Hash,
-{
+#[inline]
+fn generate_pilots<T>(
+    items: &[T],
+    n: usize,
+    hash_item: &impl Fn(&T, u64, &SharedSeed) -> u64,
+) -> Result<MapState, ConstructError> {
     let mut hashes: Vec<_> = Vec::with_capacity(n);
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(FIXED_SEED);
 
@@ -121,20 +135,27 @@ where
         let seed = rng.next_u64();
         let shared = shared_seed(seed);
         hashes.clear();
-        hashes.extend(entries.iter().map(|entry| hash(entry, seed, &shared)));
+        hashes.extend(items.iter().map(|item| hash_item(item, seed, &shared)));
 
-        if let Some((pilots, remap, indices)) = try_pilots(&hashes, n) {
-            return Some(MapState {
-                seed,
-                pilots,
-                remap,
-                indices,
-            });
+        match try_pilots(&hashes, n) {
+            Ok((pilots, remap, indices)) => {
+                return Ok(MapState {
+                    seed,
+                    pilots,
+                    remap,
+                    indices,
+                });
+            }
+            Err(e @ ConstructError::Identical(..)) => return Err(e),
+            Err(ConstructError::Exhausted) => {}
         }
     }
 
-    None
+    Err(ConstructError::Exhausted)
 }
+
+/// The pilot table, the overflow-slot remap table, and the dense entry order from a successful pilot search.
+type PilotTables = (Vec<u16>, Vec<u16>, Vec<u16>);
 
 /// Returns bucket indices ordered by descending size, with ties broken by ascending index.
 ///
@@ -174,7 +195,7 @@ fn order_buckets_by_size(starts: &[u16]) -> Vec<u16> {
 }
 
 #[inline]
-fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)> {
+fn try_pilots(hashes: &[u64], n: usize) -> Result<PilotTables, ConstructError> {
     // Sentinel marking a free slot. Real entry indices are less than `n`, which is at most `u16::MAX`, so `u16::MAX` is never an index.
     const EMPTY: u16 = u16::MAX;
 
@@ -239,12 +260,19 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)
         let b_hashes = &bucket_hashes[lo..hi];
 
         for (i, &h1) in b_hashes.iter().enumerate() {
-            for &h2 in &b_hashes[i + 1..] {
+            for (j, &h2) in b_hashes.iter().enumerate().skip(i + 1) {
+                // Two items hashing identically can never be separated, no matter the seed.
+                if h1 == h2 {
+                    return Err(ConstructError::Identical(
+                        usize::from(b_entries[i]),
+                        usize::from(b_entries[j]),
+                    ));
+                }
                 // `kernel::fastrange` only consumes the mixed pilot's low 32 bits, and the mixing itself preserves equality in the low 32 bits.
                 // So, if these two hashes match in the low 32 bits, they will land on the same slot for each pilot and we have to reseed.
                 #[expect(clippy::cast_possible_truncation)]
                 if h1 as u32 == h2 as u32 {
-                    return None;
+                    return Err(ConstructError::Exhausted);
                 }
             }
         }
@@ -273,7 +301,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)
             continue 'buckets;
         }
 
-        return None;
+        return Err(ConstructError::Exhausted);
     }
 
     // Compact the slot table into dense entry indices. A slot below `n` is its own entry index.
@@ -287,7 +315,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)
     )]
     for overflow in n..slots {
         if slot_entries[overflow] != EMPTY {
-            // SAFETY: The pilot search places all `n` keys in distinct slots or returns `None` before the loop.
+            // SAFETY: The pilot search places all `n` keys in distinct slots or fails before reaching here.
             // If `k` overflow slots are occupied, then `n − k` slots below `n` are occupied, leaving exactly `k` free.
             let hole = unsafe { free.next().unwrap_unchecked() };
             remap[overflow - n] = hole as u16;
@@ -297,13 +325,7 @@ fn try_pilots(hashes: &[u64], n: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>)
         // and a missing key that does is rejected by the final key comparison.
     }
 
-    Some((pilots, remap, indices))
-}
-
-#[inline]
-fn has_duplicates<T: Eq + Hash>(items: &[T]) -> bool {
-    let mut set = HashSet::with_capacity(items.len());
-    !items.iter().all(|item| set.insert(item))
+    Ok((pilots, remap, indices))
 }
 
 /// Returns a vector whose `i`-th element is `data[indices[i]]`.
@@ -341,14 +363,13 @@ fn is_permutation(indices: &[u16]) -> bool {
     })
 }
 
-/// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`], or `None` if no perfect hash function can be found.
+/// Constructs a perfect hash function over `keys`, returning the resulting [`MapState`] or why none was found.
 #[doc(hidden)]
-#[must_use]
-pub fn construct<T>(keys: &[T]) -> Option<MapState>
+pub fn construct<T>(keys: &[T]) -> Result<MapState, ConstructError>
 where
     T: Hash,
 {
-    generate(keys)
+    generate(keys, |key, seed, shared| hash(key, seed, shared))
 }
 
 impl<K, V> Map<K, V> {
@@ -370,16 +391,19 @@ impl<K, V> Map<K, V> {
             "cannot have more than {MAX_LEN} entries"
         );
 
-        let keys: Vec<_> = entries.iter().map(|entry| &entry.0).collect();
-
-        assert!(!has_duplicates(&keys), "duplicate key present");
-
-        let state = generate(&keys).unwrap_or_else(|| {
-            panic!(
-                "could not find a perfect hash function for the given keys after {SEED_BUDGET} attempts; \
-                 two distinct keys could be hashing identically (is `Hash` consistent with `Eq`?)"
-            )
-        });
+        let state = generate(&entries, |entry, seed, shared| hash(&entry.0, seed, shared))
+            .unwrap_or_else(|err| match err {
+                ConstructError::Identical(i, j) => {
+                    assert!(entries[i].0 != entries[j].0, "duplicate key present");
+                    panic!(
+                        "could not find a perfect hash function for the given keys; \
+                        two distinct keys hash identically under every seed (is `Hash` consistent with `Eq`?)"
+                    )
+                }
+                ConstructError::Exhausted => panic!(
+                    "could not find a perfect hash function for the given keys after {SEED_BUDGET} attempts"
+                ),
+            });
 
         // SAFETY: `state.indices` is a permutation of `0..entries.len()`. Every strategy places each of the `n` keys
         // in exactly one slot, and the pilot strategy pairs each occupied overflow slot with a distinct free slot below `n`.

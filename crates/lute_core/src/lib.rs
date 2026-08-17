@@ -27,4 +27,4 @@ pub use kernel::MAX_LEN;
 
 #[cfg(feature = "construct")]
 #[doc(hidden)]
-pub use construct::{MapState, construct};
+pub use construct::{ConstructError, MapState, construct};

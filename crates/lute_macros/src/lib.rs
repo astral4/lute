@@ -2,12 +2,11 @@
 //!
 //! These are re-exported by `lute` behind its `macros` feature. Depend on `lute` rather than this crate directly.
 
-use lute_core::{MAX_LEN, MapState, construct};
+use lute_core::{ConstructError, MAX_LEN, MapState, construct};
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
@@ -445,69 +444,12 @@ fn int_bits(width: u8, bits: u128) -> IntBits {
     }
 }
 
-/// A `Hasher` that records the exact sequence of write operations.
-struct Recorder(Vec<u8>);
-
-impl Hasher for Recorder {
-    fn finish(&self) -> u64 {
-        0
-    }
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.push(0);
-        self.0
-            .extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-        self.0.extend_from_slice(bytes);
-    }
-    fn write_u8(&mut self, i: u8) {
-        self.0.push(1);
-        self.0.push(i);
-    }
-    fn write_u16(&mut self, i: u16) {
-        self.0.push(2);
-        self.0.extend_from_slice(&i.to_le_bytes());
-    }
-    fn write_u32(&mut self, i: u32) {
-        self.0.push(3);
-        self.0.extend_from_slice(&i.to_le_bytes());
-    }
-    fn write_u64(&mut self, i: u64) {
-        self.0.push(4);
-        self.0.extend_from_slice(&i.to_le_bytes());
-    }
-    fn write_u128(&mut self, i: u128) {
-        self.0.push(5);
-        self.0.extend_from_slice(&i.to_le_bytes());
-    }
-    fn write_usize(&mut self, i: usize) {
-        self.0.push(6);
-        self.0.extend_from_slice(&(i as u64).to_le_bytes());
-    }
-}
-
 /// Builds an error that points at both a key and the earlier entry it cannot be distinguished from.
 fn indistinguishable_error(later: &Expr, earlier: &Expr) -> Error {
     let mut error =
         Error::new_spanned(later, "this key is indistinguishable from an earlier entry");
     error.combine(Error::new_spanned(earlier, "...the earlier entry is here"));
     error
-}
-
-/// When construction fails, finds the first key whose recorded hash matches an earlier key's and points at both.
-/// Falls back to a generic message if no such pair exists.
-fn locate_collision(hash_keys: &[HashKey], keys: &[&Expr]) -> Error {
-    let mut seen: HashMap<Vec<u8>, &Expr> = HashMap::with_capacity(hash_keys.len());
-    for (hash_key, key) in hash_keys.iter().zip(keys.iter().copied()) {
-        let mut recorder = Recorder(Vec::new());
-        hash_key.hash(&mut recorder);
-        if let Some(&earlier) = seen.get(&recorder.0) {
-            return indistinguishable_error(key, earlier);
-        }
-        seen.insert(recorder.0, key);
-    }
-    Error::new(
-        Span::call_site(),
-        "could not build a perfect hash function for these keys (are their `Hash` and `Eq` consistent?)",
-    )
 }
 
 fn compute_parts(keys: &[&Expr]) -> SynResult<MapState> {
@@ -524,15 +466,15 @@ fn compute_parts(keys: &[&Expr]) -> SynResult<MapState> {
         .map(|&key| expr_to_hash_key(key))
         .collect::<SynResult<Vec<_>>>()?;
 
-    let mut seen: HashMap<&HashKey, &Expr> = HashMap::with_capacity(hash_keys.len());
-    for (hash_key, key) in hash_keys.iter().zip(keys.iter().copied()) {
-        if let Some(&earlier) = seen.get(hash_key) {
-            return Err(indistinguishable_error(key, earlier));
+    construct(&hash_keys).map_err(|error| match error {
+        ConstructError::Identical(earlier, later) => {
+            indistinguishable_error(keys[later], keys[earlier])
         }
-        seen.insert(hash_key, key);
-    }
-
-    construct(&hash_keys).ok_or_else(|| locate_collision(&hash_keys, keys))
+        ConstructError::Exhausted => Error::new(
+            Span::call_site(),
+            "could not build a perfect hash function for these keys (are their `Hash` and `Eq` consistent?)",
+        ),
+    })
 }
 
 /// The path to the `lute` crate as referenced from generated code.

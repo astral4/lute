@@ -18,12 +18,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 foldhash.workspace = true
 databake = { workspace = true, optional = true }
 proc-macro-crate = { workspace = true, optional = true }
-hashbrown = { workspace = true, optional = true }
 rand_core = { workspace = true, optional = true }
 rand_xoshiro = { workspace = true, optional = true }
 
 [features]
-construct = ["dep:hashbrown", "dep:rand_core", "dep:rand_xoshiro"]
+construct = ["dep:rand_core", "dep:rand_xoshiro"]
 codegen = ["construct", "dep:databake", "dep:proc-macro-crate"]
 
 [lints]
