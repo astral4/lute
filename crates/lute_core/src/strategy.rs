@@ -95,6 +95,7 @@ impl Tables {
     }
 
     /// Returns whether the packed strategy is being used.
+    #[cfg(any(feature = "codegen", all(test, feature = "construct")))]
     pub(crate) const fn is_packed(&self) -> bool {
         self.bucket_shift == NO_PILOTS
     }
