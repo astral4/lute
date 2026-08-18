@@ -128,67 +128,41 @@ fn hash_range<H: Hasher>(
     end: Option<&HashKey>,
     state: &mut H,
 ) {
-    match start.or(end) {
-        None => (..).hash(state),
-        Some(HashKey::Int(_)) => hash_int_range(inclusive, start, end, state),
-        Some(HashKey::Char(_)) => hash_char_range(inclusive, start, end, state),
-        _ => unreachable!("range bounds are validated to be integers or chars"),
-    }
-}
-
-macro_rules! hash_reconstructed_range {
-    ($inclusive:expr, $start:expr, $end:expr, $state:expr) => {
-        match ($inclusive, $start, $end) {
-            (false, Some(s), Some(e)) => (s..e).hash($state),
-            (false, Some(s), None) => (s..).hash($state),
-            (false, None, Some(e)) => (..e).hash($state),
-            (true, Some(s), Some(e)) => (s..=e).hash($state),
-            (true, None, Some(e)) => (..=e).hash($state),
-            _ => unreachable!("validated range bound combination"),
-        }
-    };
-}
-
-fn hash_int_range<H: Hasher>(
-    inclusive: bool,
-    start: Option<&HashKey>,
-    end: Option<&HashKey>,
-    state: &mut H,
-) {
-    macro_rules! reconstruct {
-        ($variant:ident) => {{
-            let extract = |bound: Option<&HashKey>| {
-                bound.map(|k| match k {
-                    HashKey::Int(IntBits::$variant(v)) => *v,
-                    _ => unreachable!(),
-                })
-            };
-            hash_reconstructed_range!(inclusive, extract(start), extract(end), state)
+    macro_rules! rebuild {
+        ($read:expr) => {{
+            match (inclusive, start.map($read), end.map($read)) {
+                (false, Some(s), Some(e)) => (s..e).hash(state),
+                (false, Some(s), None) => (s..).hash(state),
+                (false, None, Some(e)) => (..e).hash(state),
+                (true, Some(s), Some(e)) => (s..=e).hash(state),
+                (true, None, Some(e)) => (..=e).hash(state),
+                _ => unreachable!("validated range bound combination"),
+            }
         }};
     }
-    match start.or(end) {
-        Some(HashKey::Int(IntBits::W8(_))) => reconstruct!(W8),
-        Some(HashKey::Int(IntBits::W16(_))) => reconstruct!(W16),
-        Some(HashKey::Int(IntBits::W32(_))) => reconstruct!(W32),
-        Some(HashKey::Int(IntBits::W64(_))) => reconstruct!(W64),
-        Some(HashKey::Int(IntBits::W128(_))) => reconstruct!(W128),
-        _ => unreachable!("range bounds are validated to be ints"),
-    }
-}
 
-fn hash_char_range<H: Hasher>(
-    inclusive: bool,
-    start: Option<&HashKey>,
-    end: Option<&HashKey>,
-    state: &mut H,
-) {
-    let ch = |bound: Option<&HashKey>| {
-        bound.map(|k| match k {
+    macro_rules! ints {
+        ($variant:ident) => {
+            rebuild!(|k| match k {
+                HashKey::Int(IntBits::$variant(v)) => *v,
+                _ => unreachable!("bounds share one type"),
+            })
+        };
+    }
+
+    match start.or(end) {
+        None => (..).hash(state),
+        Some(HashKey::Int(IntBits::W8(_))) => ints!(W8),
+        Some(HashKey::Int(IntBits::W16(_))) => ints!(W16),
+        Some(HashKey::Int(IntBits::W32(_))) => ints!(W32),
+        Some(HashKey::Int(IntBits::W64(_))) => ints!(W64),
+        Some(HashKey::Int(IntBits::W128(_))) => ints!(W128),
+        Some(HashKey::Char(_)) => rebuild!(|k| match k {
             HashKey::Char(c) => *c,
-            _ => unreachable!(),
-        })
-    };
-    hash_reconstructed_range!(inclusive, ch(start), ch(end), state);
+            _ => unreachable!("bounds share one type"),
+        }),
+        _ => unreachable!("range bounds are validated to be integers or chars"),
+    }
 }
 
 /// Interprets a key expression as a value hashable identically to the corresponding runtime key.
