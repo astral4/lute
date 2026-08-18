@@ -1,8 +1,8 @@
-use crate::{Map, MapKeys};
+use crate::iter::SetEntries;
+use crate::map::Map;
 use core::borrow::Borrow;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::hash::Hash;
-use core::iter::FusedIterator;
 
 /// An immutable set.
 ///
@@ -91,31 +91,6 @@ where
 }
 
 impl<T> Eq for Set<T> where T: Eq + Hash {}
-
-/// An iterator over the values of a [`Set`].
-///
-/// Created by [`Set::entries`].
-#[derive(Clone, Debug)]
-pub struct SetEntries<'a, T> {
-    inner: MapKeys<'a, T, ()>,
-}
-
-impl<'a, T> Iterator for SetEntries<'a, T> {
-    type Item = &'a T;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<T> ExactSizeIterator for SetEntries<'_, T> {}
-impl<T> FusedIterator for SetEntries<'_, T> {}
 
 #[expect(
     clippy::into_iter_without_iter,

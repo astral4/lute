@@ -1,6 +1,6 @@
 //! Codegen support for serializing constructed maps and sets into Rust code. Requires `std` for crate name resolution.
 
-use crate::map::{Map, StrategyRef};
+use crate::map::Map;
 use crate::set::Set;
 use databake::{Bake, CrateEnv, TokenStream, quote};
 use proc_macro_crate::{FoundCrate, crate_name};
@@ -28,17 +28,14 @@ where
 
         let seed = self.seed.bake(ctx);
         let entries = (&*self.entries).bake(ctx);
-        let strategy = match self.strategy() {
-            StrategyRef::Packed { table, shift } => {
-                let table = table.bake(ctx);
-                let shift = shift.bake(ctx);
-                quote!(#krate::BakedStrategy::Packed { table: #table, shift: #shift })
-            }
-            StrategyRef::Pilots { pilots, remap, .. } => {
-                let pilots = pilots.bake(ctx);
-                let remap = remap.bake(ctx);
-                quote!(#krate::BakedStrategy::Pilots { pilots: #pilots, remap: #remap })
-            }
+        let strategy = if self.tables.is_packed() {
+            let table = self.tables.packed.bake(ctx);
+            let shift = self.tables.packed_shift.bake(ctx);
+            quote!(#krate::BakedStrategy::Packed { table: #table, shift: #shift })
+        } else {
+            let pilots = (&*self.tables.pilots).bake(ctx);
+            let remap = (&*self.tables.remap).bake(ctx);
+            quote!(#krate::BakedStrategy::Pilots { pilots: #pilots, remap: #remap })
         };
 
         quote!(#krate::Map::from_baked_parts(#seed, #entries, #strategy))

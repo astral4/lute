@@ -1,72 +1,14 @@
+use crate::cow::CowSlice;
+use crate::iter::{MapEntries, MapKeys, MapValues};
 use crate::kernel::{
-    MAX_LEN, PACKED_MAX, PACKED_SHIFTS, PACKED_SLOTS, SCAN_MAX, bucket, bucket_count, bucket_shift,
-    hash, packed_index, pilot_slot, shared_seed, slot_count,
+    MAX_LEN, PACKED_SLOTS, SCAN_MAX, bucket, hash, packed_index, pilot_slot, shared_seed,
 };
-use alloc::borrow::ToOwned;
-use alloc::vec::Vec;
+use crate::strategy::{BakedStrategy, NO_PILOTS, Tables};
 use core::borrow::Borrow;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::hash::Hash;
-use core::iter::FusedIterator;
-use core::ops::{Deref, Index};
-use core::slice::Iter;
+use core::ops::Index;
 use foldhash::SharedSeed;
-
-/// The [`Map::bucket_shift`] value marking a map with no pilot table. Shifting by 64 is invalid, so this doesn't collide with a real shift.
-const NO_PILOTS: u32 = 64;
-
-pub(crate) enum CowSlice<T: 'static> {
-    Borrowed(&'static [T]),
-    Owned(Vec<T>),
-}
-
-impl<T> Deref for CowSlice<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        match *self {
-            Self::Borrowed(borrowed) => borrowed,
-            Self::Owned(ref owned) => owned.borrow(),
-        }
-    }
-}
-
-impl<T: Clone> Clone for CowSlice<T> {
-    fn clone(&self) -> Self {
-        match *self {
-            Self::Borrowed(b) => Self::Borrowed(b),
-            Self::Owned(ref o) => {
-                let b: &[T] = o.borrow();
-                Self::Owned(b.to_vec())
-            }
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        match (self, source) {
-            (&mut Self::Owned(ref mut dest), Self::Owned(o)) => {
-                let b: &[T] = o.borrow();
-                b.clone_into(dest);
-            }
-            (t, s) => *t = s.clone(),
-        }
-    }
-}
-
-impl<T: Debug> Debug for CowSlice<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match *self {
-            Self::Borrowed(b) => Debug::fmt(b, f),
-            Self::Owned(ref o) => Debug::fmt(o, f),
-        }
-    }
-}
-
-impl<T> Default for CowSlice<T> {
-    fn default() -> Self {
-        Self::Owned(Vec::new())
-    }
-}
 
 /// An immutable map.
 ///
@@ -77,99 +19,20 @@ pub struct Map<K: 'static, V: 'static> {
     /// The expansion of `seed` used for hashing.
     pub(crate) shared_seed: SharedSeed,
     pub(crate) entries: CowSlice<(K, V)>,
-
-    /// The slot-to-entry table in the packed strategy.
-    pub(crate) packed: [u8; PACKED_SLOTS],
-    /// The window shift in the packed strategy.
-    pub(crate) packed_shift: u32,
-
-    /// [`crate::kernel::bucket_shift`] of the pilot count in the pilot strategy, or [`NO_PILOTS`] in the scan and packed strategies.
-    pub(crate) bucket_shift: u32,
-    /// One pilot per bucket in the pilot strategy.
-    pub(crate) pilots: CowSlice<u16>,
-    /// Entry indices for the overflow slots `entries.len()..(entries.len() + remap.len())` in the pilot strategy.
-    pub(crate) remap: CowSlice<u16>,
-    /// `entries.len() + remap.len()` in the pilot strategy.
-    pub(crate) slots: u32,
-}
-
-/// Tables produced by a construction strategy and embedded in generated code.
-#[doc(hidden)]
-#[derive(Clone, Copy, Debug)]
-pub enum BakedStrategy {
-    /// A bit window of the hash indexes `table`.
-    Packed {
-        /// One entry index per slot.
-        table: [u8; PACKED_SLOTS],
-        /// Which bit window of the hash selects the slot.
-        shift: u32,
-    },
-    /// The hash selects a bucket and the bucket's pilot selects a slot. Slots past the entries are remapped back.
-    Pilots {
-        /// One pilot per bucket.
-        pilots: &'static [u16],
-        /// Entry indices for the overflow slots.
-        remap: &'static [u16],
-    },
-}
-
-/// Returns whether every packed slot holds a valid index into `entry_count` entries.
-const fn packed_targets_valid(packed: &[u8; PACKED_SLOTS], entry_count: usize) -> bool {
-    let mut i = 0;
-    while i < packed.len() {
-        if packed[i] as usize >= entry_count {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
-/// Returns whether every remap value is a valid index into `entry_count` entries.
-const fn remap_targets_valid(remap: &[u16], entry_count: usize) -> bool {
-    let mut i = 0;
-    while i < remap.len() {
-        if remap[i] as usize >= entry_count {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
-/// A borrowed view of the strategy used by a map.
-pub(crate) enum StrategyRef<'a> {
-    Packed {
-        table: &'a [u8; PACKED_SLOTS],
-        shift: u32,
-    },
-    Pilots {
-        pilots: &'a [u16],
-        remap: &'a [u16],
-        shift: u32,
-        slots: u32,
-    },
-}
-
-/// Returns the [`Map::bucket_shift`] value implied by a pilot table, or [`NO_PILOTS`] when there is no pilot table.
-pub(crate) const fn pilot_shift(pilots: &[u16]) -> u32 {
-    if pilots.is_empty() {
-        NO_PILOTS
-    } else {
-        bucket_shift(pilots.len())
-    }
-}
-
-/// Returns the [`Map::slots`] value implied by an entry count and remap table.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "`slot_count(MAX_LEN)` is 66191, which fits in `u32`"
-)]
-pub(crate) const fn slot_total(entries: usize, remap: usize) -> u32 {
-    (entries + remap) as u32
+    pub(crate) tables: Tables,
 }
 
 impl<K, V> Map<K, V> {
+    /// Assembles a map from entries that are already in their final order and tables for addressing them.
+    pub(crate) const fn new(seed: u64, entries: CowSlice<(K, V)>, tables: Tables) -> Self {
+        Self {
+            seed,
+            shared_seed: shared_seed(seed),
+            entries,
+            tables,
+        }
+    }
+
     /// Reconstructs a `Map` from its serialized parts.
     ///
     /// This is an implementation detail used by generated code; it is intentionally hidden from the public API.
@@ -181,72 +44,13 @@ impl<K, V> Map<K, V> {
         entries: &'static [(K, V)],
         strategy: BakedStrategy,
     ) -> Self {
-        const UNUSED: &[u16] = &[];
-
         assert!(entries.len() <= MAX_LEN, "too many entries");
 
-        let (packed, packed_shift, pilots, remap) = match strategy {
-            BakedStrategy::Packed { table, shift } => {
-                assert!(
-                    entries.len() <= PACKED_MAX,
-                    "packed strategy used for an entry count that requires a pilot table"
-                );
-                if !entries.is_empty() {
-                    assert!(shift < PACKED_SHIFTS, "packed window shift out of range");
-                    assert!(
-                        packed_targets_valid(&table, entries.len()),
-                        "packed value out of range"
-                    );
-                }
-                (table, shift, UNUSED, UNUSED)
-            }
-            BakedStrategy::Pilots { pilots, remap } => {
-                assert!(!pilots.is_empty(), "pilot strategy without a pilot table");
-                assert!(
-                    remap_targets_valid(remap, entries.len()),
-                    "remap value out of range"
-                );
-                assert!(
-                    pilots.len() == bucket_count(entries.len()),
-                    "pilot table length must match the bucket count for the entry count"
-                );
-                assert!(
-                    remap.len() == slot_count(entries.len()) - entries.len(),
-                    "remap length must match the slot slack for the entry count"
-                );
-                ([0; PACKED_SLOTS], 0, pilots, remap)
-            }
-        };
-
-        Self {
+        Self::new(
             seed,
-            shared_seed: shared_seed(seed),
-            entries: CowSlice::Borrowed(entries),
-            packed,
-            packed_shift,
-            bucket_shift: pilot_shift(pilots),
-            pilots: CowSlice::Borrowed(pilots),
-            remap: CowSlice::Borrowed(remap),
-            slots: slot_total(entries.len(), remap.len()),
-        }
-    }
-
-    /// Returns the strategy used by this map.
-    #[inline]
-    pub(crate) fn strategy(&self) -> StrategyRef<'_> {
-        if self.bucket_shift == NO_PILOTS {
-            StrategyRef::Packed {
-                table: &self.packed,
-                shift: self.packed_shift,
-            }
-        } else {
-            StrategyRef::Pilots {
-                pilots: &self.pilots,
-                remap: &self.remap,
-                shift: self.bucket_shift,
-                slots: self.slots,
-            }
-        }
+            CowSlice::Borrowed(entries),
+            Tables::from_baked(strategy, entries.len()),
+        )
     }
 
     /// Returns the key-value entry corresponding to the given key, if present.
@@ -268,27 +72,22 @@ impl<K, V> Map<K, V> {
         }
 
         let hash = hash(key, self.seed, &self.shared_seed);
-
-        let index = match self.strategy() {
-            StrategyRef::Packed { table, shift } => packed_index(hash, shift, table),
-            StrategyRef::Pilots {
-                pilots,
-                remap,
-                shift,
-                slots,
-            } => {
-                let slot = {
-                    // SAFETY: `kernel::bucket` returns a value less than `pilots.len()` for any hash because
-                    // `shift` is `kernel::bucket_shift(pilots.len())` and `pilots.len()` is a power of 2 and at least 2.
-                    let pilot = *unsafe { pilots.get_unchecked(bucket(hash, shift)) };
-                    pilot_slot(hash, pilot, slots as usize)
-                };
-                if slot < n {
-                    slot
-                } else {
-                    // SAFETY: `slot` is less than `slots` = `n + remap.len()`, so `slot - n` is a valid index into `remap`.
-                    usize::from(*unsafe { remap.get_unchecked(slot - n) })
-                }
+        let tables = &self.tables;
+        let shift = tables.bucket_shift;
+        let index = if shift == NO_PILOTS {
+            packed_index(hash, tables.packed_shift, &tables.packed)
+        } else {
+            let slot = {
+                // SAFETY: `kernel::bucket` returns a value less than `pilots.len()` for any hash
+                // because `shift` is `kernel::bucket_shift(pilots.len())` and `pilots.len()` is a power of 2 and at least 2.
+                let pilot = *unsafe { tables.pilots.get_unchecked(bucket(hash, shift)) };
+                pilot_slot(hash, pilot, tables.slots as usize)
+            };
+            if slot < n {
+                slot
+            } else {
+                // SAFETY: `slot` is less than `slots` = `n + remap.len()`, so `slot - n` is a valid index into `remap`.
+                usize::from(*unsafe { tables.remap.get_unchecked(slot - n) })
             }
         };
 
@@ -418,81 +217,6 @@ where
 {
 }
 
-/// An iterator over the key-value pairs of a [`Map`].
-///
-/// Created by [`Map::entries`].
-#[derive(Clone, Debug)]
-pub struct MapEntries<'a, K, V> {
-    inner: Iter<'a, (K, V)>,
-}
-
-impl<'a, K, V> Iterator for MapEntries<'a, K, V> {
-    type Item = (&'a K, &'a V);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(k, v)| (k, v))
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<K, V> ExactSizeIterator for MapEntries<'_, K, V> {}
-impl<K, V> FusedIterator for MapEntries<'_, K, V> {}
-
-/// An iterator over the keys of a [`Map`].
-///
-/// Created by [`Map::keys`].
-#[derive(Clone, Debug)]
-pub struct MapKeys<'a, K, V> {
-    inner: Iter<'a, (K, V)>,
-}
-
-impl<'a, K, V> Iterator for MapKeys<'a, K, V> {
-    type Item = &'a K;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(k, _)| k)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<K, V> ExactSizeIterator for MapKeys<'_, K, V> {}
-impl<K, V> FusedIterator for MapKeys<'_, K, V> {}
-
-/// An iterator over the values of a [`Map`].
-///
-/// Created by [`Map::values`].
-#[derive(Clone, Debug)]
-pub struct MapValues<'a, K, V> {
-    inner: Iter<'a, (K, V)>,
-}
-
-impl<'a, K, V> Iterator for MapValues<'a, K, V> {
-    type Item = &'a V;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(_, v)| v)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<K, V> ExactSizeIterator for MapValues<'_, K, V> {}
-impl<K, V> FusedIterator for MapValues<'_, K, V> {}
-
 #[expect(
     clippy::into_iter_without_iter,
     reason = "the by-reference iterator is `Map::entries`"
@@ -509,7 +233,8 @@ impl<'a, K, V> IntoIterator for &'a Map<K, V> {
 
 #[cfg(test)]
 mod baked_parts_test {
-    use super::{BakedStrategy, MAX_LEN, Map, PACKED_SHIFTS};
+    use super::{BakedStrategy, MAX_LEN, Map};
+    use crate::kernel::PACKED_SHIFTS;
 
     const fn packed(table: [u8; 16], shift: u32) -> BakedStrategy {
         BakedStrategy::Packed { table, shift }

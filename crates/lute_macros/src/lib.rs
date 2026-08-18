@@ -617,24 +617,25 @@ fn build_output(
     bake_entry: impl Fn(usize) -> TokenStream2,
     wrap: impl FnOnce(TokenStream2, &TokenStream2) -> TokenStream2,
 ) -> SynResult<TokenStream2> {
-    let MapState { seed, strategy } = compute_parts(keys)?;
+    let MapState {
+        seed,
+        strategy,
+        order,
+    } = compute_parts(keys)?;
     let krate = crate_path();
 
-    let (baked, strategy) = match strategy {
+    let baked: Vec<_> = match order {
+        Some(order) => order.iter().map(|&i| bake_entry(usize::from(i))).collect(),
+        None => (0..keys.len()).map(&bake_entry).collect(),
+    };
+
+    let strategy = match strategy {
         Strategy::Packed { table, shift } => {
-            let baked: Vec<_> = (0..keys.len()).map(&bake_entry).collect();
             let table = Literal::byte_string(&table);
-            let strategy = quote!(#krate::BakedStrategy::Packed { table: *#table, shift: #shift });
-            (baked, strategy)
+            quote!(#krate::BakedStrategy::Packed { table: *#table, shift: #shift })
         }
-        Strategy::Pilots {
-            pilots,
-            remap,
-            indices,
-        } => {
-            let baked = indices.iter().map(|&i| bake_entry(i as usize)).collect();
-            let strategy = quote!(#krate::BakedStrategy::Pilots { pilots: &[#(#pilots),*], remap: &[#(#remap),*] });
-            (baked, strategy)
+        Strategy::Pilots { pilots, remap } => {
+            quote!(#krate::BakedStrategy::Pilots { pilots: &[#(#pilots),*], remap: &[#(#remap),*] })
         }
     };
 

@@ -9,9 +9,12 @@ extern crate alloc;
 #[cfg(feature = "codegen")]
 extern crate std;
 
+mod cow;
+mod iter;
 mod kernel;
 mod map;
 mod set;
+mod strategy;
 
 #[cfg(feature = "construct")]
 mod construct;
@@ -19,13 +22,14 @@ mod construct;
 #[cfg(feature = "codegen")]
 mod bake;
 
-pub use map::{Map, MapEntries, MapKeys, MapValues};
-pub use set::{Set, SetEntries};
+pub use iter::{MapEntries, MapKeys, MapValues, SetEntries};
+pub use map::Map;
+pub use set::Set;
 
 #[doc(hidden)]
 pub use kernel::MAX_LEN;
 #[doc(hidden)]
-pub use map::BakedStrategy;
+pub use strategy::BakedStrategy;
 
 #[cfg(feature = "construct")]
 #[doc(hidden)]
