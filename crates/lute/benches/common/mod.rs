@@ -110,6 +110,14 @@ fn miss_stream<C: Bench>(n: usize) -> (Vec<C::Key>, usize) {
     (shuffled(C::absent(n)), 0)
 }
 
+/// A half-hit, half-miss query stream.
+fn mixed_stream<C: Bench>(n: usize) -> (Vec<C::Key>, usize) {
+    let mut queries = C::present(n);
+    queries.reserve_exact(n);
+    queries.extend(C::absent(n));
+    (shuffled(queries), n)
+}
+
 /// Builds an `n`-entry map, builds its query stream with `stream`, and benches repeated `lookup`s over it.
 fn bench_stream<C: Bench>(
     bencher: Bencher<'_, '_>,
@@ -152,6 +160,16 @@ pub(crate) fn bench_miss_isolated<C: Bench>(bencher: Bencher<'_, '_>, n: usize) 
     bench_stream::<C>(bencher, n, miss_stream::<C>, isolated_lookup::<C>);
 }
 
+/// Shuffled "hit" and "miss" lookups for measuring amortized throughput.
+pub(crate) fn bench_mixed<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
+    bench_stream::<C>(bencher, n, mixed_stream::<C>, C::get);
+}
+
+/// Shuffled "hit" and "miss" lookups with `#[inline(never)]` for measuring single-lookup latency.
+pub(crate) fn bench_mixed_isolated<C: Bench>(bencher: Bencher<'_, '_>, n: usize) {
+    bench_stream::<C>(bencher, n, mixed_stream::<C>, isolated_lookup::<C>);
+}
+
 /// Registers the query benchmarks for one adapter type.
 macro_rules! query_benches {
     ($adapter:ident) => {
@@ -167,6 +185,12 @@ macro_rules! query_benches {
         $crate::common::query_benches!(@one $adapter,
             /// Repeated "miss" lookups with `#[inline(never)]` for measuring single-lookup latency.
             get_miss_isolated, bench_miss_isolated);
+        $crate::common::query_benches!(@one $adapter,
+            /// Shuffled "hit" and "miss" lookups for measuring amortized throughput.
+            get_mixed, bench_mixed);
+        $crate::common::query_benches!(@one $adapter,
+            /// Shuffled "hit" and "miss" lookups with `#[inline(never)]` for measuring single-lookup latency.
+            get_mixed_isolated, bench_mixed_isolated);
     };
     (@one $adapter:ident, $(#[$doc:meta])* $name:ident, $harness:ident) => {
         $(#[$doc])*
